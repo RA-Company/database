@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -333,9 +335,8 @@ func ToStr(str string) string {
 	return strings.Replace(str, "'", "''", -1)
 }
 
-// ArrayToString converts a slice of strings to a PostgreSQL array string representation.
+// ArrayToString converts a slice of any slice type to a PostgreSQL array string representation.
 // It formats the slice into a string that can be used in SQL queries as an array.
-// The resulting string is enclosed in square brackets and each element is enclosed in single quotes.
 // If the input slice is empty, it returns "[]".
 // Each element in the slice is also processed by the ToStr function to escape single quotes.
 // This is useful for constructing SQL queries that require array parameters.
@@ -345,7 +346,43 @@ func ToStr(str string) string {
 //
 // Returns:
 //   - A string representing the PostgreSQL array format of the input slice.
-func ArrayToString(arr []string) string {
+func ArrayToString(v any) string {
+	if v == nil {
+		return "[]"
+	}
+
+	str := reflect.TypeOf(v).String()
+
+	if strings.Index(str, "[]") == -1 {
+		return "[]"
+	}
+
+	if str == "[]string" {
+		return StringsToString(v.([]string))
+	}
+
+	val, _ := json.Marshal(v)
+	if string(val) == "null" {
+		return "[]"
+	}
+	return string(val)
+}
+
+// StringsToString converts a slice of strings to a PostgreSQL array string representation.
+// It formats the slice into a string that can be used in SQL queries as an array.
+// The resulting string is enclosed in square brackets and each element is enclosed in single quotes.
+// If the input slice is empty, it returns "[]".
+// Each element in the slice is processed by the ToStr function to escape single quotes.
+// This is useful for constructing SQL queries that require array parameters.
+//
+// Parameters:
+//   - arr: A slice of strings to be converted to a PostgreSQL array string representation.
+//
+// Returns:
+//   - A string representing the PostgreSQL array format of the input slice.
+//
+// Note: This function assumes that the input slice contains only strings and does not handle other types.
+func StringsToString(arr []string) string {
 	if len(arr) == 0 {
 		return "[]"
 	}
