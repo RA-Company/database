@@ -216,6 +216,74 @@ func (dst *FieldValue) AddJSON(is interface{}, field string) {
 	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", ToStr(string(data))))
 }
 
+// Int8Slice compares two slices of int8 values and adds the new slice to the Fields and Values slices if they differ.
+//
+// Parameters:
+//   - was: the original slice of int8 values.
+//   - is: the new slice of int8 values.
+//   - field: the name of the field being compared, which will be added to the Fields slice.
+func (dst *FieldValue) Int8Slice(was, is []int8, field string) {
+	if !slices.Equal(was, is) {
+		dst.AddInt8Slice(is, field)
+	}
+}
+
+// AddInt8Slice adds a new slice of int8 values to the Fields and Values slices.
+// It formats the slice as a PostgreSQL array string and appends it to the Values slice.
+//
+// Parameters:
+//   - is: the new slice of int8 values to be added.
+//   - field: the name of the field being added, which will be appended to the Fields slice.
+func (dst *FieldValue) AddInt8Slice(is []int8, field string) {
+	dst.Fields = append(dst.Fields, field)
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", ArrayToString(is)))
+}
+
+// Int16Slice compares two slices of int16 values and adds the new slice to the Fields and Values slices if they differ.
+//
+// Parameters:
+//   - was: the original slice of int16 values.
+//   - is: the new slice of int16 values.
+//   - field: the name of the field being compared, which will be added to the
+func (dst *FieldValue) Int16Slice(was, is []int16, field string) {
+	if !slices.Equal(was, is) {
+		dst.AddInt16Slice(is, field)
+	}
+}
+
+// AddInt16Slice adds a new slice of int16 values to the Fields and Values slices.
+// It formats the slice as a PostgreSQL array string and appends it to the Values slice.
+//
+// Parameters:
+//   - is: the new slice of int16 values to be added.
+//   - field: the name of the field being added, which will be appended to the
+func (dst *FieldValue) AddInt16Slice(is []int16, field string) {
+	dst.Fields = append(dst.Fields, field)
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", ArrayToString(is)))
+}
+
+// Int32Slice compares two slices of int32 values and adds the new slice to the Fields and Values slices if they differ.
+// Parameters:
+//   - was: the original slice of int32 values.
+//   - is: the new slice of int32 values.
+//   - field: the name of the field being compared, which will be added to the Fields slice.
+func (dst *FieldValue) Int32Slice(was, is []int32, field string) {
+	if !slices.Equal(was, is) {
+		dst.AddInt32Slice(is, field)
+	}
+}
+
+// AddInt32Slice adds a new slice of int32 values to the Fields and Values slices.
+// It formats the slice as a PostgreSQL array string and appends it to the Values slice.
+//
+// Parameters:
+//   - is: the new slice of int32 values to be added.
+//   - field: the name of the field being added, which will be appended to the
+func (dst *FieldValue) AddInt32Slice(is []int32, field string) {
+	dst.Fields = append(dst.Fields, field)
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::INTEGER[]", ArrayToString(is)))
+}
+
 // Int64Slice compares two slices of int64 values and adds the new slice to the Fields and Values slices if they differ.
 //
 // Parameters:

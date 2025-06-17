@@ -30,6 +30,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/ra-company/env v1.0.0 h1:4BrQ9aO13SCkGqExdhDVkX0dOQeX5mB7myR8N2d86lY=
 github.com/ra-company/env v1.0.0/go.mod h1:Wnr6DHulEi5q4F3h0AVC1R249vVV5B26kSs7190/jTI=
+github.com/ra-company/env v1.0.1 h1:wDV9NtgvJzDx9/0jbB/+EWvKbE0ZVjAemuWxrDHw9qw=
+github.com/ra-company/env v1.0.1/go.mod h1:Wnr6DHulEi5q4F3h0AVC1R249vVV5B26kSs7190/jTI=
 github.com/ra-company/logging v1.0.2 h1:2uniTtHI/JUgetdkYHm0+0uF5rDgbQvo1dolTzXxGOU=
 github.com/ra-company/logging v1.0.2/go.mod h1:9HN/tvHlexXKBgcRLvwrEcFawMpjPfzPDRD9cApKn3A=
 github.com/redis/go-redis/v9 v9.10.0 h1:FxwK3eV8p/CQa0Ch276C7u2d0eNC9kCmAYQ7mCXCzVs=
