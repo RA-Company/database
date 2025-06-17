@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/ra-company/logging"
 )
 
 // FieldValue is a structure to build a PostgreSQL update query.
@@ -206,14 +204,14 @@ func (dst *FieldValue) AddTime(is time.Time, field string) {
 // Parameters:
 //   - is: the input interface to be marshaled into JSON.
 //   - field: the name of the field being added, which will be appended to the Fields slice.
-func (dst *FieldValue) AddJSON(is interface{}, field string) {
+func (dst *FieldValue) AddJSON(is any, field string) error {
 	data, err := json.Marshal(is)
 	if err != nil {
-		logging.Logs.Errorf("json.Marshal() error: %+v", err)
-		return
+		return err
 	}
 	dst.Fields = append(dst.Fields, field)
 	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", ToStr(string(data))))
+	return nil
 }
 
 // Int8Slice compares two slices of int8 values and adds the new slice to the Fields and Values slices if they differ.

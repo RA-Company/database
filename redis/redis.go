@@ -3,7 +3,6 @@ package redis
 import (
 	"context"
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,13 +12,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type RedisClient struct {
+	logging.CustomLogger               // CustomLogger: is an interface that allows the Redis client to use a custom logger for logging operations and errors.
+	client               *redis.Client // client: is the Redis client used to interact with the Redis server.
+	singlePush           *redis.Script // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
+	db                   int           // db: is the Redis database number, used for logging purposes.
+}
+
 var (
-	Redis      *redis.Client
-	singlePush *redis.Script
+	Redis RedisClient // Redis: is the global Redis client used to interact with the Redis server.
 
 	ErrorListIsNotEmpty = errors.New("list is not empty")
-
-	usedDB int // usedDB: is the Redis database number, used for logging purposes.
 )
 
 // Start initializes the Redis client with the provided host, port, password, and database number.
@@ -27,6 +30,7 @@ var (
 // If the connection fails, it logs a fatal error and exits the program.
 //
 // Parameters:
+//   - ctx: The context for the operation, allowing for cancellation and timeouts.
 //   - host: The Redis server host.
 //   - port: The Redis server port.
 //   - password: The Redis server password.
@@ -37,21 +41,20 @@ var (
 // If the list is not empty, it returns an error indicating that the list is not empty.
 // This function should be called at the start of the application to establish a connection to Redis.
 // It sets the usedDB variable to the current database number for logging purposes.
-func Start(host string, port int, password string, db int) {
-	Redis = redis.NewClient(&redis.Options{
+func (dst *RedisClient) Start(ctx context.Context, host string, port int, password string, db int) {
+	dst.client = redis.NewClient(&redis.Options{
 		Addr:     host + ":" + strconv.Itoa(port),
 		Password: password,
 		DB:       db,
 	})
-	usedDB = db // Set the usedDB variable to the current database number.
-	res := Redis.Ping(context.Background())
+	dst.db = db // Set the usedDB variable to the current database number.
+	res := dst.client.Ping(context.Background())
 	if res.Err() != nil {
-		logging.Logs.Fatalf("Failed to connect to Redis database: %v", res.Err())
-		os.Exit(1)
+		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
 	}
-	logging.Logs.Infof("Connected to Redis database: redis://%v:%v/%v", host, port, db)
+	dst.Info(ctx, "Connected to Redis database: redis://%v:%v/%v", host, port, db)
 
-	singlePush = redis.NewScript(`
+	dst.singlePush = redis.NewScript(`
         if redis.call("LLEN", KEYS[1]) == 0 then
             return redis.call("LPUSH", KEYS[1], ARGV[1])
         else
@@ -73,11 +76,11 @@ func Start(host string, port int, password string, db int) {
 // Returns:
 //   - The value associated with the key, or the default value if the key is not found.
 //   - An error if the operation fails.
-func Get(ctx context.Context, key string, def string) (string, error) {
+func (dst *RedisClient) Get(ctx context.Context, key string, def string) (string, error) {
 	start := time.Now()
 
-	str, err := Redis.Get(ctx, key).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) GET (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	str, err := dst.client.Get(ctx, key).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) GET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -99,11 +102,11 @@ func Get(ctx context.Context, key string, def string) (string, error) {
 // Returns:
 //   - The position of the value in the list, or -1 if the value is not found.
 //   - An error if the operation fails.
-func LPos(ctx context.Context, key string, value string) (int, error) {
+func (dst *RedisClient) LPos(ctx context.Context, key string, value string) (int, error) {
 	start := time.Now()
 
-	str, err := Redis.LPos(ctx, key, value, redis.LPosArgs{}).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) LPOS (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	str, err := dst.client.LPos(ctx, key, value, redis.LPosArgs{}).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPOS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return -1, nil
@@ -125,12 +128,12 @@ func LPos(ctx context.Context, key string, value string) (int, error) {
 // Returns:
 //   - A slice of strings containing the values associated with the keys, or an empty slice if the keys are not found.
 //   - An error if the operation fails.
-func MGet(ctx context.Context, keys []string) ([]string, error) {
+func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, error) {
 	start := time.Now()
 
 	results := make([]string, len(keys))
-	strs, err := Redis.MGet(ctx, keys...).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) MGET (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, strings.Join(keys, ", "))
+	strs, err := dst.client.MGet(ctx, keys...).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MGET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(keys, ", "))
 	if err != nil {
 		return results, err
 	}
@@ -157,11 +160,11 @@ func MGet(ctx context.Context, keys []string) ([]string, error) {
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func Set(ctx context.Context, key string, value interface{}, expiration int) error {
+func (dst *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration int) error {
 	start := time.Now()
 
-	err := Redis.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", usedDB, float64(time.Since(start))/1000000, key, value)
+	err := dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
 	return err
 }
 
@@ -178,11 +181,11 @@ func Set(ctx context.Context, key string, value interface{}, expiration int) err
 // Returns:
 //   - The new length of the list after the operation.
 //   - An error if the operation fails.
-func LPush(ctx context.Context, key string, value interface{}) (int64, error) {
+func (dst *RedisClient) LPush(ctx context.Context, key string, value interface{}) (int64, error) {
 	start := time.Now()
 
-	res, err := Redis.LPush(ctx, key, value).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) LPUSH(%d) (%.2f ms)\033[1m \033[33m%q=%q\033[0m\033[0m", usedDB, res, float64(time.Since(start))/1000000, key, value)
+	res, err := dst.client.LPush(ctx, key, value).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPUSH(%d) (%.2f ms)\033[1m \033[33m%q=%q\033[0m\033[0m", dst.db, res, float64(time.Since(start))/1000000, key, value)
 	return res, err
 }
 
@@ -198,11 +201,11 @@ func LPush(ctx context.Context, key string, value interface{}) (int64, error) {
 //
 // Returns:
 //   - An error if the list is not empty or if the operation fails, otherwise nil.
-func SinglePush(ctx context.Context, key string, value interface{}) error {
+func (dst *RedisClient) SinglePush(ctx context.Context, key string, value interface{}) error {
 	start := time.Now()
 
-	res, err := singlePush.Run(ctx, Redis, []string{key}, value).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", usedDB, float64(time.Since(start))/1000000, key, value)
+	res, err := dst.singlePush.Run(ctx, dst.client, []string{key}, value).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
 	if err != nil {
 		return err
 	}
@@ -225,11 +228,11 @@ func SinglePush(ctx context.Context, key string, value interface{}) error {
 // Returns:
 //   - A slice of strings containing the values from the list, or an empty slice if the list is empty.
 //   - An error if the operation fails.
-func LRange(ctx context.Context, key string, def string) ([]string, error) {
+func (dst *RedisClient) LRange(ctx context.Context, key string, def string) ([]string, error) {
 	start := time.Now()
 
-	res, err := Redis.LRange(ctx, key, 0, 0).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) LRANGE (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	res, err := dst.client.LRange(ctx, key, 0, 0).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LRANGE (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
 }
@@ -246,11 +249,11 @@ func LRange(ctx context.Context, key string, def string) ([]string, error) {
 // Returns:
 //   - The length of the list, or 0 if the list is empty.
 //   - An error if the operation fails.
-func LLen(ctx context.Context, key string) (int64, error) {
+func (dst *RedisClient) LLen(ctx context.Context, key string) (int64, error) {
 	start := time.Now()
 
-	res, err := Redis.LLen(ctx, key).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) LLEN (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	res, err := dst.client.LLen(ctx, key).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LLEN (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
 }
@@ -270,11 +273,11 @@ func LLen(ctx context.Context, key string) (int64, error) {
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func LRem(ctx context.Context, key string, count int64, value string) error {
+func (dst *RedisClient) LRem(ctx context.Context, key string, count int64, value string) error {
 	start := time.Now()
 
-	_, err := Redis.LRem(ctx, key, count, value).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) LREM (%.2f ms)\033[1m \033[34m%q %d %q\033[0m", usedDB, float64(time.Since(start))/1000000, key, count, value)
+	_, err := dst.client.LRem(ctx, key, count, value).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LREM (%.2f ms)\033[1m \033[34m%q %d %q\033[0m", dst.db, float64(time.Since(start))/1000000, key, count, value)
 
 	return err
 }
@@ -292,11 +295,11 @@ func LRem(ctx context.Context, key string, count int64, value string) error {
 // Returns:
 //   - The first value from the list, or the default value if the list is empty.
 //   - An error if the operation fails.
-func BLPop(ctx context.Context, key string, def string, ttl uint64) (string, error) {
+func (dst *RedisClient) BLPop(ctx context.Context, key string, def string, ttl uint64) (string, error) {
 	start := time.Now()
 
-	str, err := Redis.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) BLPOP (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	str, err := dst.client.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLPOP (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -322,11 +325,11 @@ func BLPop(ctx context.Context, key string, def string, ttl uint64) (string, err
 // Returns:
 //   - The first value from the source list, or the default value if the source list is empty.
 //   - An error if the operation fails.
-func BLMove(ctx context.Context, source, destination, srcpos, dstpos string, def string, ttl uint64) (string, error) {
+func (dst *RedisClient) BLMove(ctx context.Context, source, destination, srcpos, dstpos string, def string, ttl uint64) (string, error) {
 	start := time.Now()
 
-	str, err := Redis.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) BLMOVE (%.2f ms)\033[1m \033[34m%q (%s) -> %q (%s)\033[0m", usedDB, float64(time.Since(start))/1000000, source, srcpos, destination, dstpos)
+	str, err := dst.client.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLMOVE (%.2f ms)\033[1m \033[34m%q (%s) -> %q (%s)\033[0m", dst.db, float64(time.Since(start))/1000000, source, srcpos, destination, dstpos)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -348,11 +351,11 @@ func BLMove(ctx context.Context, source, destination, srcpos, dstpos string, def
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func Expire(ctx context.Context, key string, ttl uint64) error {
+func (dst *RedisClient) Expire(ctx context.Context, key string, ttl uint64) error {
 	start := time.Now()
 
-	err := Redis.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) EXPIRE (%.2f ms)\033[1m \033[34m%q %d\033[0m", usedDB, float64(time.Since(start))/1000000, key, ttl)
+	err := dst.client.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) EXPIRE (%.2f ms)\033[1m \033[34m%q %d\033[0m", dst.db, float64(time.Since(start))/1000000, key, ttl)
 	return err
 }
 
@@ -368,11 +371,11 @@ func Expire(ctx context.Context, key string, ttl uint64) error {
 // Returns:
 //   - The remaining time to live of the key in seconds, or an error if the key does not exist or has no timeout.
 //   - An error if the operation fails.
-func TTL(ctx context.Context, key string) (int64, error) {
+func (dst *RedisClient) TTL(ctx context.Context, key string) (int64, error) {
 	start := time.Now()
 
-	ttl, err := Redis.TTL(ctx, key).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) TTL (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	ttl, err := dst.client.TTL(ctx, key).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) TTL (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return int64(ttl.Seconds()), err
 }
 
@@ -386,11 +389,11 @@ func TTL(ctx context.Context, key string) (int64, error) {
 // Returns:
 //   - A slice of strings containing the keys that match the pattern.
 //   - An error if the operation fails or if there are no matching keys.
-func Keys(ctx context.Context, pattern string) ([]string, error) {
+func (dst *RedisClient) Keys(ctx context.Context, pattern string) ([]string, error) {
 	start := time.Now()
 
-	keys, err := Redis.Keys(ctx, pattern).Result()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) KEYS (%.2f ms)\033[1m \033[34m%q\033[0m", usedDB, float64(time.Since(start))/1000000, pattern)
+	keys, err := dst.client.Keys(ctx, pattern).Result()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) KEYS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, pattern)
 	return keys, err
 }
 
@@ -405,10 +408,20 @@ func Keys(ctx context.Context, pattern string) ([]string, error) {
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func Del(ctx context.Context, key string) error {
+func (dst *RedisClient) Del(ctx context.Context, key string) error {
 	start := time.Now()
 
-	err := Redis.Del(ctx, key).Err()
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", usedDB, float64(time.Since(start))/1000000, key)
+	err := dst.client.Del(ctx, key).Err()
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return err
+}
+
+// Client returns the underlying Redis client instance.
+// This function is useful for accessing additional Redis client methods that are not directly exposed by the RedisClient struct.
+// It allows you to perform operations that are not defined in the RedisClient interface.
+//
+// Returns:
+//   - A pointer to the redis.Client instance.
+func (dst *RedisClient) Client() *redis.Client {
+	return dst.client
 }

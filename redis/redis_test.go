@@ -12,54 +12,55 @@ import (
 )
 
 func Test(t *testing.T) {
+	ctx := context.Background()
+
 	host := env.GetEnvStr("REDIS_HOST", "localhost")
 	port := env.GetEnvInt("REDIS_PORT", 6379)
 	password := env.GetEnvStr("REDIS_PASSWORD", "")
 	db := env.GetEnvInt("REDIS_DB", 0)
-	Start(host, port, password, db)
+	Redis.Start(ctx, host, port, password, db)
 
 	faker := gofakeit.New(0)
-	ctx := context.Background()
 
 	key := faker.Word()
 	value := faker.LetterN(30)
 	defaultValue := faker.LetterN(30)
 
 	t.Run("1 Get()", func(t *testing.T) {
-		Redis.Del(ctx, key)
-		got, err := Get(ctx, key, defaultValue)
+		Redis.client.Del(ctx, key)
+		got, err := Redis.Get(ctx, key, defaultValue)
 		require.NoError(t, err, "Get()")
 		require.Equal(t, defaultValue, got, "Get()")
 
-		Redis.Set(ctx, key, value, time.Duration(10)*time.Second)
-		defer Redis.Del(ctx, key)
+		Redis.client.Set(ctx, key, value, time.Duration(10)*time.Second)
+		defer Redis.client.Del(ctx, key)
 
-		got, err = Get(ctx, key, defaultValue)
+		got, err = Redis.Get(ctx, key, defaultValue)
 		require.NoError(t, err, "Get()")
 		require.Equal(t, value, got, "Get()")
 	})
 
 	t.Run("2 Set()", func(t *testing.T) {
-		err := Set(ctx, key, value, 10)
+		err := Redis.Set(ctx, key, value, 10)
 		require.NoError(t, err, "Set()")
-		defer Redis.Del(ctx, key)
+		defer Redis.client.Del(ctx, key)
 
-		got, err := Redis.Get(ctx, key).Result()
+		got, err := Redis.client.Get(ctx, key).Result()
 		require.NoError(t, err, "redis.Get()")
 		require.Equal(t, value, got, "redis.Get()")
 	})
 
 	t.Run("3 Set with timer", func(t *testing.T) {
-		err := Set(ctx, key, value, 1)
+		err := Redis.Set(ctx, key, value, 1)
 		require.NoError(t, err, "Set()")
-		defer Redis.Del(ctx, key)
+		defer Redis.client.Del(ctx, key)
 
-		got, err := Redis.Get(ctx, key).Result()
+		got, err := Redis.client.Get(ctx, key).Result()
 		require.NoError(t, err, "redis.Get()")
 		require.Equal(t, value, got, "redis.Get()")
 
 		time.Sleep(time.Duration(2) * time.Second)
-		_, err = Redis.Get(ctx, key).Result()
+		_, err = Redis.client.Get(ctx, key).Result()
 		require.Error(t, err, "redis.Get()")
 		require.Equal(t, err.Error(), "redis: nil", "redis.Get()")
 	})
@@ -69,12 +70,12 @@ func Test(t *testing.T) {
 		key1 := fmt.Sprintf("%s:%s", pattern, faker.Word())
 		key2 := fmt.Sprintf("%s:%s", pattern, faker.Word())
 
-		Redis.Set(ctx, key1, faker.Word(), time.Duration(10)*time.Second)
-		defer Redis.Del(ctx, key1)
-		Redis.Set(ctx, key2, faker.Word(), time.Duration(10)*time.Second)
-		defer Redis.Del(ctx, key2)
+		Redis.client.Set(ctx, key1, faker.Word(), time.Duration(10)*time.Second)
+		defer Redis.client.Del(ctx, key1)
+		Redis.client.Set(ctx, key2, faker.Word(), time.Duration(10)*time.Second)
+		defer Redis.client.Del(ctx, key2)
 
-		keys, err := Keys(ctx, fmt.Sprintf("%s:*", pattern))
+		keys, err := Redis.Keys(ctx, fmt.Sprintf("%s:*", pattern))
 		require.NoError(t, err, "Keys()")
 		require.Contains(t, keys, key1)
 		require.Contains(t, keys, key2)
@@ -82,16 +83,16 @@ func Test(t *testing.T) {
 	})
 
 	t.Run("5 Del()", func(t *testing.T) {
-		err := Del(ctx, key)
+		err := Redis.Del(ctx, key)
 		require.NoError(t, err, "Del()")
 
-		Redis.Set(ctx, key, value, time.Duration(10)*time.Second)
-		defer Redis.Del(ctx, key)
+		Redis.client.Set(ctx, key, value, time.Duration(10)*time.Second)
+		defer Redis.client.Del(ctx, key)
 
-		err = Del(ctx, key)
+		err = Redis.Del(ctx, key)
 		require.NoError(t, err, "Del()")
 
-		_, err = Redis.Get(ctx, key).Result()
+		_, err = Redis.client.Get(ctx, key).Result()
 		require.Error(t, err, "redis.Get()")
 		require.Equal(t, err.Error(), "redis: nil", "redis.Get()")
 	})
@@ -100,10 +101,11 @@ func Test(t *testing.T) {
 		key := faker.Word()
 		value := faker.Word()
 
-		err := SinglePush(ctx, key, value)
+		err := Redis.SinglePush(ctx, key, value)
 		require.NoError(t, err, "SinglePush()")
+		defer Redis.client.Del(ctx, key)
 
-		err = SinglePush(ctx, key, value)
+		err = Redis.SinglePush(ctx, key, value)
 		require.ErrorIs(t, err, ErrorListIsNotEmpty, "SinglePush()")
 	})
 }

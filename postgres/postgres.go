@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -18,8 +17,13 @@ import (
 )
 
 var (
-	PgSQL *pgxpool.Pool
+	PG PostgresClient // PG: is a global variable that holds the PostgreSQL client instance.
 )
+
+type PostgresClient struct {
+	logging.CustomLogger               // CustomLogger: is an embedded field that allows the PostgresClient to use custom logging functionality.
+	client               *pgxpool.Pool // client: is a pointer to the PostgreSQL connection pool.
+}
 
 // Start initializes the PostgreSQL connection pool with the provided credentials and database information.
 // It logs an error and exits the application if the connection fails.
@@ -28,28 +32,27 @@ var (
 // If the connection is successful, it logs the connection details.
 //
 // Parameters:
+//   - ctx: The context for the operation, used for cancellation and timeout.
 //   - username: The username for the PostgreSQL database.
 //   - password: The password for the PostgreSQL database.
 //   - host: The host where the PostgreSQL database is running.
 //   - port: The port on which the PostgreSQL database is listening.
 //   - db: The name of the PostgreSQL database to connect to.
-func Start(username, password, host string, port int, db string) {
+func (dst *PostgresClient) Start(ctx context.Context, username, password, host string, port int, db string) {
 	var err error
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", username, password, host, port, db)
 
-	PgSQL, err = pgxpool.New(context.Background(), connectionString)
+	dst.client, err = pgxpool.New(context.Background(), connectionString)
 	if err != nil {
-		logging.Logs.Fatalf("PostgreSQL connection error: %v", err)
-		os.Exit(1)
+		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
-	err = PgSQL.Ping(context.Background())
+	err = dst.client.Ping(context.Background())
 	if err != nil {
-		logging.Logs.Fatalf("PostgreSQL connection error: %v", err)
-		os.Exit(1)
+		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
-	logging.Logs.Infof("Connected to PostgreSQL Database: host - %v, port - %v, database - %v, user - %v", host, port, db, username)
+	dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, port - %v, database - %v, user - %v", host, port, db, username)
 }
 
 // Stop closes the PostgreSQL connection pool and logs a message indicating that the disconnection was successful.
@@ -57,9 +60,12 @@ func Start(username, password, host string, port int, db string) {
 // It is typically called when the application is shutting down to ensure that all resources are released properly.
 // It is important to call this function to avoid resource leaks and ensure that the application exits cleanly.
 // It is recommended to call this function in a deferred manner after the connection pool is successfully created.
-func Stop() {
-	PgSQL.Close()
-	logging.Logs.Info("Disconnected from PostgreSQL Database")
+//
+// Parameters:
+//   - ctx: The context for the operation, used for cancellation and timeout.
+func (dst *PostgresClient) Stop(ctx context.Context) {
+	dst.client.Close()
+	dst.Info(ctx, "Disconnected from PostgreSQL Database")
 }
 
 // Insert data into database and return inserted IDs
@@ -76,12 +82,12 @@ func Stop() {
 // Returns:
 //   - A slice of uint containing the IDs of the inserted records.
 //   - An error if the operation fails, or nil if it succeeds.
-func Insert(ctx context.Context, model string, query string) ([]uint, error) {
+func (dst *PostgresClient) Insert(ctx context.Context, model string, query string) ([]uint, error) {
 	start := time.Now()
 
 	ids := []uint{}
-	tx, err := PgSQL.Begin(context.Background())
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	tx, err := dst.client.Begin(context.Background())
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return ids, err
 	}
@@ -90,11 +96,11 @@ func Insert(ctx context.Context, model string, query string) ([]uint, error) {
 
 	var res pgx.Rows
 	res, err = tx.Query(context.Background(), query+" RETURNING id")
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
 	if err != nil {
 		tx.Rollback(ctx)
-		logging.Logs.Errorf(ctx, err)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Error(ctx, err)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return ids, err
 	}
 
@@ -106,14 +112,14 @@ func Insert(ctx context.Context, model string, query string) ([]uint, error) {
 
 	if err != nil {
 		tx.Rollback(ctx)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return ids, err
 	}
 
 	start = time.Now()
 
 	err = tx.Commit(ctx)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return ids, err
 	}
@@ -135,15 +141,15 @@ func Insert(ctx context.Context, model string, query string) ([]uint, error) {
 // Returns:
 //   - A uint representing the number of affected rows.
 //   - An error if the operation fails, or nil if it succeeds.
-func Update(ctx context.Context, model string, query string) (uint, error) {
+func (dst *PostgresClient) Update(ctx context.Context, model string, query string) (uint, error) {
 	if query == "" {
 		return 0, nil
 	}
 
 	start := time.Now()
 
-	tx, err := PgSQL.Begin(context.Background())
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	tx, err := dst.client.Begin(context.Background())
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return 0, err
 	}
@@ -152,25 +158,25 @@ func Update(ctx context.Context, model string, query string) (uint, error) {
 
 	var res pgconn.CommandTag
 	res, err = tx.Exec(ctx, query)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
 	if err != nil {
 		tx.Rollback(ctx)
-		logging.Logs.Errorf(ctx, err)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Error(ctx, err)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return 0, err
 	}
 
 	if !res.Update() {
 		tx.Rollback(ctx)
-		logging.Logs.Errorf(ctx, database.ErrorIncorrectRequest)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Error(ctx, database.ErrorIncorrectRequest)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return 0, database.ErrorIncorrectRequest
 	}
 
 	start = time.Now()
 
 	err = tx.Commit(ctx)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return 0, err
 	}
@@ -192,11 +198,11 @@ func Update(ctx context.Context, model string, query string) (uint, error) {
 // Returns:
 //   - A uint representing the number of affected rows.
 //   - An error if the operation fails, or nil if it succeeds.
-func Delete(ctx context.Context, model string, query string) (uint, error) {
+func (dst *PostgresClient) Delete(ctx context.Context, model string, query string) (uint, error) {
 	start := time.Now()
 
-	tx, err := PgSQL.Begin(ctx)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	tx, err := dst.client.Begin(ctx)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return 0, err
 	}
@@ -205,25 +211,25 @@ func Delete(ctx context.Context, model string, query string) (uint, error) {
 
 	var res pgconn.CommandTag
 	res, err = tx.Exec(ctx, query)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Delete (%.2f ms)\033[1m \033[31m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Delete (%.2f ms)\033[1m \033[31m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		tx.Rollback(ctx)
-		logging.Logs.Errorf(ctx, err)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Error(ctx, err)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return 0, err
 	}
 
 	if !res.Delete() {
 		tx.Rollback(ctx)
-		logging.Logs.Errorf(ctx, database.ErrorIncorrectRequest)
-		logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Error(ctx, database.ErrorIncorrectRequest)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 		return 0, database.ErrorIncorrectRequest
 	}
 
 	start = time.Now()
 
 	err = tx.Commit(ctx)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return 0, err
 	}
@@ -245,12 +251,12 @@ func Delete(ctx context.Context, model string, query string) (uint, error) {
 // Returns:
 //   - A uint64 representing the number of records in the specified model.
 //   - An error if the operation fails, or nil if it succeeds.
-func Count(ctx context.Context, model string, query string) (uint64, error) {
+func (dst *PostgresClient) Count(ctx context.Context, model string, query string) (uint64, error) {
 	start := time.Now()
 
 	var n uint64
-	err := PgSQL.QueryRow(context.Background(), query).Scan(&n)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	err := dst.client.QueryRow(context.Background(), query).Scan(&n)
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		return 0, err
 	}
@@ -272,12 +278,12 @@ func Count(ctx context.Context, model string, query string) (uint64, error) {
 // Returns:
 //   - A uint64 representing the maximum value of the specified field in the model.
 //   - An error if the operation fails, or nil if it succeeds.
-func Max(ctx context.Context, model, query string) (uint64, error) {
+func (dst *PostgresClient) Max(ctx context.Context, model, query string) (uint64, error) {
 	start := time.Now()
 
 	var n uint64
-	err := PgSQL.QueryRow(context.Background(), query).Scan(&n)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s MAX (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	err := dst.client.QueryRow(context.Background(), query).Scan(&n)
+	dst.Debug(ctx, "\033[1m\033[36mPG %s MAX (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		return 0, err
 	}
@@ -297,11 +303,11 @@ func Max(ctx context.Context, model, query string) (uint64, error) {
 //
 // Returns:
 //   - An error if the operation fails, or nil if it succeeds.
-func Exec(ctx context.Context, model string, query string) error {
+func (dst *PostgresClient) Exec(ctx context.Context, model string, query string) error {
 	start := time.Now()
 
-	_, err := PgSQL.Exec(ctx, query)
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Exec (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	_, err := dst.client.Exec(ctx, query)
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Exec (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		return err
 	}
@@ -318,8 +324,8 @@ func Exec(ctx context.Context, model string, query string) error {
 //   - ctx: The context for the operation, used for cancellation and timeout.
 //   - model: The name of the model being queried, used for logging.
 //   - query: The SQL query string to be logged.
-func LogSelect(ctx context.Context, model string, query string, start time.Time) {
-	logging.Logs.Debugf(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+func (dst *PostgresClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 }
 
 // ToStr escapes single quotes in a string for use in SQL queries.
