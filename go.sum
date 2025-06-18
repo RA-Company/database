@@ -40,8 +40,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/ra-company/env v1.0.1 h1:wDV9NtgvJzDx9/0jbB/+EWvKbE0ZVjAemuWxrDHw9qw=
 github.com/ra-company/env v1.0.1/go.mod h1:Wnr6DHulEi5q4F3h0AVC1R249vVV5B26kSs7190/jTI=
-github.com/ra-company/logging v1.0.5 h1:0UM2mPQTv4k5L9/6SQV58Qqw2tcKXn133P+BsQchj8I=
-github.com/ra-company/logging v1.0.5/go.mod h1:9HN/tvHlexXKBgcRLvwrEcFawMpjPfzPDRD9cApKn3A=
+github.com/ra-company/logging v1.0.6 h1:7pDmbgYffFcOxIiqPp2FOngg9kd//yS6fY0YiCZAE18=
+github.com/ra-company/logging v1.0.6/go.mod h1:9HN/tvHlexXKBgcRLvwrEcFawMpjPfzPDRD9cApKn3A=
 github.com/redis/go-redis/v9 v9.10.0 h1:FxwK3eV8p/CQa0Ch276C7u2d0eNC9kCmAYQ7mCXCzVs=
 github.com/redis/go-redis/v9 v9.10.0/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
