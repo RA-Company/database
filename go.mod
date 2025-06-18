@@ -4,6 +4,7 @@ go 1.24.3
 
 require (
 	github.com/brianvoe/gofakeit/v7 v7.2.1
+	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/ra-company/env v1.0.1
 	github.com/ra-company/logging v1.0.5

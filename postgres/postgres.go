@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/ra-company/database"
 	"github.com/ra-company/logging"
 
@@ -42,12 +43,12 @@ func (dst *PostgresClient) Start(ctx context.Context, username, password, host s
 	var err error
 	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", username, password, host, port, db)
 
-	dst.client, err = pgxpool.New(context.Background(), connectionString)
+	dst.client, err = pgxpool.New(ctx, connectionString)
 	if err != nil {
 		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
-	err = dst.client.Ping(context.Background())
+	err = dst.client.Ping(ctx)
 	if err != nil {
 		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
@@ -68,6 +69,26 @@ func (dst *PostgresClient) Stop(ctx context.Context) {
 	dst.Info(ctx, "Disconnected from PostgreSQL Database")
 }
 
+// Select data from database and scan into data structure
+// The function executes a SQL query to select data from the database and scans the result into the provided data structure.
+// It logs the time taken for the query execution and the query itself for debugging purposes.
+// If the query execution is successful, it returns nil.
+// If an error occurs during the query execution, it returns the error.
+//
+// Parameters:
+//   - ctx: The context for the operation, used for cancellation and timeout.
+//   - model: The name of the model being queried, used for logging.
+//   - query: The SQL query string to be executed in the database.
+//   - data: A pointer to the data structure where the result will be scanned into.
+func (dst *PostgresClient) Select(ctx context.Context, model string, query string, data any) error {
+	start := time.Now()
+
+	err := pgxscan.Select(ctx, dst.client, data, query)
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+
+	return err
+}
+
 // Insert data into database and return inserted IDs
 // The function starts a transaction, executes the insert query, and returns the IDs of the inserted records.
 // If an error occurs during the transaction, it rolls back the transaction and returns the error.
@@ -86,7 +107,7 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 	start := time.Now()
 
 	ids := []uint{}
-	tx, err := dst.client.Begin(context.Background())
+	tx, err := dst.client.Begin(ctx)
 	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return ids, err
@@ -95,7 +116,7 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 	start = time.Now()
 
 	var res pgx.Rows
-	res, err = tx.Query(context.Background(), query+" RETURNING id")
+	res, err = tx.Query(ctx, query+" RETURNING id")
 	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
 	if err != nil {
 		tx.Rollback(ctx)
@@ -148,7 +169,7 @@ func (dst *PostgresClient) Update(ctx context.Context, model string, query strin
 
 	start := time.Now()
 
-	tx, err := dst.client.Begin(context.Background())
+	tx, err := dst.client.Begin(ctx)
 	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	if err != nil {
 		return 0, err
@@ -255,7 +276,7 @@ func (dst *PostgresClient) Count(ctx context.Context, model string, query string
 	start := time.Now()
 
 	var n uint64
-	err := dst.client.QueryRow(context.Background(), query).Scan(&n)
+	err := dst.client.QueryRow(ctx, query).Scan(&n)
 	dst.Debug(ctx, "\033[1m\033[36mPG %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		return 0, err
@@ -282,7 +303,7 @@ func (dst *PostgresClient) Max(ctx context.Context, model, query string) (uint64
 	start := time.Now()
 
 	var n uint64
-	err := dst.client.QueryRow(context.Background(), query).Scan(&n)
+	err := dst.client.QueryRow(ctx, query).Scan(&n)
 	dst.Debug(ctx, "\033[1m\033[36mPG %s MAX (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
 	if err != nil {
 		return 0, err
@@ -313,7 +334,6 @@ func (dst *PostgresClient) Exec(ctx context.Context, model string, query string)
 	}
 
 	return nil
-
 }
 
 // Put query string to the log
@@ -326,6 +346,13 @@ func (dst *PostgresClient) Exec(ctx context.Context, model string, query string)
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
 	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+}
+
+// Client returns the PostgreSQL connection pool.
+// It is used to access the underlying pgxpool.Pool instance for executing queries and transactions.
+// This function is typically called when you need to perform operations directly on the PostgreSQL database.
+func (dst *PostgresClient) Client() *pgxpool.Pool {
+	return dst.client
 }
 
 // ToStr escapes single quotes in a string for use in SQL queries.

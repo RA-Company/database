@@ -48,7 +48,7 @@ func (dst *RedisClient) Start(ctx context.Context, host string, port int, passwo
 		DB:       db,
 	})
 	dst.db = db // Set the usedDB variable to the current database number.
-	res := dst.client.Ping(context.Background())
+	res := dst.client.Ping(ctx)
 	if res.Err() != nil {
 		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
 	}
