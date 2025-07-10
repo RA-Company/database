@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
+	"github.com/google/uuid"
 	"github.com/ra-company/database"
 	"github.com/ra-company/logging"
 
@@ -28,7 +29,9 @@ type PostgresClient struct {
 
 // Start initializes the PostgreSQL connection pool with the provided credentials and database information.
 // It logs an error and exits the application if the connection fails.
-// The connection string is formatted as "postgres://username:password@host:port/dbName".
+// The connection string is formatted as "postgres://username:password@host/db"
+// Function detects if the host contains multiple addresses separated by commas and appends "?target_session_attrs=read-write" to the connection string for cluster setups.
+// This allows the client to connect to a primary server for read-write operations.
 // It also pings the database to ensure the connection is established.
 // If the connection is successful, it logs the connection details.
 //
@@ -36,12 +39,17 @@ type PostgresClient struct {
 //   - ctx: The context for the operation, used for cancellation and timeout.
 //   - username: The username for the PostgreSQL database.
 //   - password: The password for the PostgreSQL database.
-//   - host: The host where the PostgreSQL database is running.
-//   - port: The port on which the PostgreSQL database is listening.
+//   - host: The host (with port) where the PostgreSQL database is running.
 //   - db: The name of the PostgreSQL database to connect to.
-func (dst *PostgresClient) Start(ctx context.Context, username, password, host string, port int, db string) {
+func (dst *PostgresClient) Start(ctx context.Context, username, password, host string, db string) {
 	var err error
-	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", username, password, host, port, db)
+	var connectionString string
+
+	if strings.Contains(host, ",") {
+		connectionString = fmt.Sprintf("postgres://%s:%s@%s/%s?target_session_attrs=read-write", username, password, host, db)
+	} else {
+		connectionString = fmt.Sprintf("postgres://%s:%s@%s/%s", username, password, host, db)
+	}
 
 	dst.client, err = pgxpool.New(ctx, connectionString)
 	if err != nil {
@@ -53,7 +61,11 @@ func (dst *PostgresClient) Start(ctx context.Context, username, password, host s
 		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
-	dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, port - %v, database - %v, user - %v", host, port, db, username)
+	if strings.Contains(host, ",") {
+		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", host, db, username)
+	} else {
+		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", host, db, username)
+	}
 }
 
 // Stop closes the PostgreSQL connection pool and logs a message indicating that the disconnection was successful.
@@ -126,6 +138,65 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 	}
 
 	var n uint
+	_, err = pgx.ForEachRow(res, []any{&n}, func() error {
+		ids = append(ids, n)
+		return nil
+	})
+
+	if err != nil {
+		tx.Rollback(ctx)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		return ids, err
+	}
+
+	start = time.Now()
+
+	err = tx.Commit(ctx)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	if err != nil {
+		return ids, err
+	}
+
+	return ids, nil
+}
+
+// InsertUUID data into database and return inserted UUIDs
+// The function starts a transaction, executes the insert query, and returns the UUIDs of the inserted records.
+// If an error occurs during the transaction, it rolls back the transaction and returns the error.
+// If the transaction is successful, it commits the transaction and returns the UUIDs of the inserted records.
+// The function logs the time taken for each step of the transaction for debugging purposes.
+//
+// Parameters:
+//   - ctx: The context for the operation, used for cancellation and timeout.
+//   - model: The name of the model being inserted, used for logging.
+//   - query: The SQL query string for inserting data into the database.
+//
+// Returns:
+//   - A slice of uuid.UUID containing the UUIDs of the inserted records.
+//   - An error if the operation fails, or nil if it succeeds.
+func (dst *PostgresClient) InsertUUID(ctx context.Context, model string, query string) ([]uuid.UUID, error) {
+	start := time.Now()
+
+	ids := []uuid.UUID{}
+	tx, err := dst.client.Begin(ctx)
+	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	if err != nil {
+		return ids, err
+	}
+
+	start = time.Now()
+
+	var res pgx.Rows
+	res, err = tx.Query(ctx, query+" RETURNING id")
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	if err != nil {
+		tx.Rollback(ctx)
+		dst.Error(ctx, err)
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		return ids, err
+	}
+
+	var n uuid.UUID
 	_, err = pgx.ForEachRow(res, []any{&n}, func() error {
 		ids = append(ids, n)
 		return nil
@@ -386,7 +457,7 @@ func ArrayToString(v any) string {
 
 	str := reflect.TypeOf(v).String()
 
-	if strings.Index(str, "[]") == -1 {
+	if !strings.Contains(str, "[]") {
 		return "[]"
 	}
 
