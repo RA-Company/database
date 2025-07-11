@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // FieldValue is a structure to build a PostgreSQL update query.
@@ -339,7 +341,7 @@ func (dst *FieldValue) AddStringSlice(is []string, field string) {
 // Returns:
 //   - string: the generated SQL update query.
 //   - time.Time: the current time in UTC, representing the update timestamp.
-func (dst *FieldValue) UpdateQuery(table string, id int64) (string, time.Time) {
+func (dst *FieldValue) UpdateQuery(table string, id any) (string, time.Time) {
 	if len(dst.Fields) == 0 {
 		return "", time.Time{}
 	}
@@ -347,5 +349,12 @@ func (dst *FieldValue) UpdateQuery(table string, id int64) (string, time.Time) {
 	update := time.Now().UTC()
 	fields := fmt.Sprintf("%s,updated_at", strings.Join(dst.Fields, ","))
 	values := fmt.Sprintf("%s,'%s'", strings.Join(dst.Values, ","), update.Format(time.RFC3339Nano))
-	return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = %d", table, fields, values, id), update
+	switch v := id.(type) {
+	case uint:
+		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = %d", table, fields, values, v), update
+	case uuid.UUID:
+		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = '%s'", table, fields, values, v), update
+	default:
+		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = '%s'", table, fields, values, v), update
+	}
 }
