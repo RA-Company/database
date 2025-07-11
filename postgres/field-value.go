@@ -199,6 +199,28 @@ func (dst *FieldValue) AddTime(is time.Time, field string) {
 	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.UTC().Format(time.RFC3339Nano)))
 }
 
+// UUID compares two UUID values and adds the new value to the Fields and Values slices if they differ.
+//
+// Parameters:
+//   - was: the original UUID value.
+//   - is: the new UUID value.
+func (dst *FieldValue) UUID(was, is uuid.UUID, field string) {
+	if was != is {
+		dst.AddUUID(is, field)
+	}
+}
+
+// AddUUID adds a new UUID value to the Fields and Values slices.
+// It formats the UUID as a string suitable for a PostgreSQL query.
+//
+// Parameters:
+//   - is: the new UUID value to be added.
+//   - field: the name of the field being added, which will be appended to the Fields slice.
+func (dst *FieldValue) AddUUID(is uuid.UUID, field string) {
+	dst.Fields = append(dst.Fields, field)
+	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.String()))
+}
+
 // AddJSON adds a new JSON value to the Fields and Values slices.
 // It marshals the input interface into JSON format and appends it to the Values slice.
 // If the marshaling fails, it logs an error message.
