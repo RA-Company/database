@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,15 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+// Set represents a Redis set operation with a key, value, and time-to-live (TTL).
+// It is used to add a value to a Redis set with an optional expiration time.
+// The Key field is the Redis key for the set, the Value field is the value to be added to the set, and the TTL field is the time-to-live for the set in seconds.
+type Set struct {
+	Key   string // Key: is the Redis key for the set.
+	Value any    // Value: is the value to be added to the set.
+	TTL   uint64 // TTL: is the time-to-live for the set in seconds.
+}
 
 type RedisClient struct {
 	logging.CustomLogger               // CustomLogger: is an interface that allows the Redis client to use a custom logger for logging operations and errors.
@@ -160,12 +170,45 @@ func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, erro
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func (dst *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration int) error {
+func (dst *RedisClient) Set(ctx context.Context, key string, value any, expiration int) error {
 	start := time.Now()
 
 	err := dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(value.(string), "\n", " "))
 	return err
+}
+
+// MultiSet sets multiple key-value pairs in Redis database with optional expiration times.
+// It uses a transaction pipeline to execute multiple SET commands atomically.
+// If an error occurs, it returns the error.
+// If the operation is successful, it returns nil.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - sets: A slice of Set structs containing the keys, values, and optional expiration times.
+//
+// Returns:
+//   - An error if the operation fails, otherwise nil.
+func (dst *RedisClient) MultiSet(ctx context.Context, sets []Set) error {
+	start := time.Now()
+	pipe := dst.client.TxPipeline()
+	for _, set := range sets {
+		if set.TTL > 0 {
+			pipe.Set(ctx, set.Key, set.Value, time.Duration(set.TTL)*time.Second)
+		} else {
+			pipe.Set(ctx, set.Key, set.Value, 0)
+		}
+	}
+	_, err := pipe.Exec(ctx)
+	vals := []string{}
+	for _, set := range sets {
+		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(set.Value.(string), "\n", " ")))
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // LPush adds a value to the beginning of a Redis list by key.
@@ -181,7 +224,7 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value interface{}, 
 // Returns:
 //   - The new length of the list after the operation.
 //   - An error if the operation fails.
-func (dst *RedisClient) LPush(ctx context.Context, key string, value interface{}) (int64, error) {
+func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64, error) {
 	start := time.Now()
 
 	res, err := dst.client.LPush(ctx, key, value).Result()
@@ -201,7 +244,7 @@ func (dst *RedisClient) LPush(ctx context.Context, key string, value interface{}
 //
 // Returns:
 //   - An error if the list is not empty or if the operation fails, otherwise nil.
-func (dst *RedisClient) SinglePush(ctx context.Context, key string, value interface{}) error {
+func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any) error {
 	start := time.Now()
 
 	res, err := dst.singlePush.Run(ctx, dst.client, []string{key}, value).Result()

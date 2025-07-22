@@ -108,4 +108,22 @@ func Test(t *testing.T) {
 		err = Redis.SinglePush(ctx, key, value)
 		require.ErrorIs(t, err, ErrorListIsNotEmpty, "SinglePush()")
 	})
+
+	t.Run("7 MultiSet()", func(t *testing.T) {
+		sets := []Set{
+			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
+			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
+			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
+		}
+
+		err := Redis.MultiSet(ctx, sets)
+		require.NoError(t, err, "MultiSet()")
+
+		for _, set := range sets {
+			got, err := Redis.client.Get(ctx, set.Key).Result()
+			require.NoError(t, err, "redis.Get()")
+			require.Equal(t, set.Value, got, "redis.Get()")
+			defer Redis.client.Del(ctx, set.Key)
+		}
+	})
 }
