@@ -174,7 +174,7 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 	start := time.Now()
 
 	err := dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(value.(string), "\n", " "))
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(fmt.Sprintf("%s", value), "\n", " "))
 	return err
 }
 
@@ -191,6 +191,7 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 //   - An error if the operation fails, otherwise nil.
 func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 	start := time.Now()
+	vals := []string{}
 	pipe := dst.client.TxPipeline()
 	for _, set := range *sets {
 		if set.TTL > 0 {
@@ -198,12 +199,9 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 		} else {
 			pipe.Set(ctx, set.Key, set.Value, 0)
 		}
+		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(fmt.Sprintf("%s", set.Value), "\n", " ")))
 	}
 	_, err := pipe.Exec(ctx)
-	vals := []string{}
-	for _, set := range *sets {
-		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(set.Value.(string), "\n", " ")))
-	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
 	if err != nil {
 		return err

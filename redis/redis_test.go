@@ -113,7 +113,7 @@ func Test(t *testing.T) {
 		sets := []Set{
 			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
 			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
-			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
+			{Key: faker.Word(), Value: []byte(faker.Word()), TTL: 10},
 		}
 
 		err := Redis.MultiSet(ctx, &sets)
@@ -122,7 +122,8 @@ func Test(t *testing.T) {
 		for _, set := range sets {
 			got, err := Redis.client.Get(ctx, set.Key).Result()
 			require.NoError(t, err, "redis.Get()")
-			require.Equal(t, set.Value, got, "redis.Get()")
+			val := fmt.Sprintf("%s", set.Value)
+			require.Equal(t, val, got, "redis.Get()")
 			defer Redis.client.Del(ctx, set.Key)
 		}
 	})
