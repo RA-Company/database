@@ -116,7 +116,7 @@ func Test(t *testing.T) {
 			{Key: faker.Word(), Value: faker.Word(), TTL: 10},
 		}
 
-		err := Redis.MultiSet(ctx, sets)
+		err := Redis.MultiSet(ctx, &sets)
 		require.NoError(t, err, "MultiSet()")
 
 		for _, set := range sets {

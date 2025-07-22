@@ -189,10 +189,10 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 //
 // Returns:
 //   - An error if the operation fails, otherwise nil.
-func (dst *RedisClient) MultiSet(ctx context.Context, sets []Set) error {
+func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 	start := time.Now()
 	pipe := dst.client.TxPipeline()
-	for _, set := range sets {
+	for _, set := range *sets {
 		if set.TTL > 0 {
 			pipe.Set(ctx, set.Key, set.Value, time.Duration(set.TTL)*time.Second)
 		} else {
@@ -201,7 +201,7 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets []Set) error {
 	}
 	_, err := pipe.Exec(ctx)
 	vals := []string{}
-	for _, set := range sets {
+	for _, set := range *sets {
 		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(set.Value.(string), "\n", " ")))
 	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
