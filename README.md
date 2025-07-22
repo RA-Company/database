@@ -2,7 +2,7 @@
 
 Connect and execute to database:
 - PostgreSQL
-- ClickHouse
+- Redis
 
 # Used libraries
 * https://github.com/jackc/pgx/ - PostgreSQL Driver and Toolkit  (MIT License)
