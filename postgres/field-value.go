@@ -204,9 +204,11 @@ func (dst *FieldValue) AddTime(is time.Time, field string) {
 // Parameters:
 //   - was: the original UUID value.
 //   - is: the new UUID value.
-func (dst *FieldValue) UUID(was, is uuid.UUID, field string) {
+//   - field: the name of the field being compared, which will be added to the Fields slice.
+//   - nullable: if true, allows the UUID to be nil (NULL) in the
+func (dst *FieldValue) UUID(was, is uuid.UUID, field string, nullable bool) {
 	if was != is {
-		dst.AddUUID(is, field)
+		dst.AddUUID(is, field, nullable)
 	}
 }
 
@@ -216,9 +218,14 @@ func (dst *FieldValue) UUID(was, is uuid.UUID, field string) {
 // Parameters:
 //   - is: the new UUID value to be added.
 //   - field: the name of the field being added, which will be appended to the Fields slice.
-func (dst *FieldValue) AddUUID(is uuid.UUID, field string) {
+//   - nullable: if true, allows the UUID to be nil (NULL) in the database.
+func (dst *FieldValue) AddUUID(is uuid.UUID, field string, nullable bool) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.String()))
+	if is == uuid.Nil && nullable {
+		dst.Values = append(dst.Values, "NULL")
+	} else {
+		dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.String()))
+	}
 }
 
 // AddJSON adds a new JSON value to the Fields and Values slices.
