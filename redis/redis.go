@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +22,11 @@ type Set struct {
 }
 
 type RedisClient struct {
-	logging.CustomLogger               // CustomLogger: is an interface that allows the Redis client to use a custom logger for logging operations and errors.
-	client               *redis.Client // client: is the Redis client used to interact with the Redis server.
-	singlePush           *redis.Script // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
-	db                   int           // db: is the Redis database number, used for logging purposes.
+	logging.CustomLogger                      // CustomLogger: is an interface that allows the Redis client to use a custom logger for logging operations and errors.
+	client               *redis.Client        // client: is the Redis client used to interact with the Redis server.
+	cluster              *redis.ClusterClient // cluster: is a Redis cluster client used for connecting to a Redis cluster.
+	singlePush           *redis.Script        // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
+	db                   int                  // db: is the Redis database number, used for logging purposes.
 }
 
 var (
@@ -41,8 +41,7 @@ var (
 //
 // Parameters:
 //   - ctx: The context for the operation, allowing for cancellation and timeouts.
-//   - host: The Redis server host.
-//   - port: The Redis server port.
+//   - hosts: The Redis server hosts (single or comma-separated).
 //   - password: The Redis server password.
 //   - db: The Redis database number to use.
 //
@@ -51,18 +50,16 @@ var (
 // If the list is not empty, it returns an error indicating that the list is not empty.
 // This function should be called at the start of the application to establish a connection to Redis.
 // It sets the usedDB variable to the current database number for logging purposes.
-func (dst *RedisClient) Start(ctx context.Context, host string, port int, password string, db int) {
-	dst.client = redis.NewClient(&redis.Options{
-		Addr:     host + ":" + strconv.Itoa(port),
-		Password: password,
-		DB:       db,
-	})
+func (dst *RedisClient) Start(ctx context.Context, hosts string, password string, db int) {
 	dst.db = db // Set the usedDB variable to the current database number.
-	res := dst.client.Ping(ctx)
-	if res.Err() != nil {
-		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
+
+	if strings.Contains(hosts, ",") {
+		// If the hosts contain a comma, it is a cluster of Redis nodes.
+		dst.startCluster(ctx, hosts, password)
+	} else {
+		// If the hosts do not contain a comma, it is a single Redis node.
+		dst.startSingle(ctx, hosts, password)
 	}
-	dst.Info(ctx, "Connected to Redis database: redis://%v:%v/%v", host, port, db)
 
 	dst.singlePush = redis.NewScript(`
         if redis.call("LLEN", KEYS[1]) == 0 then
@@ -71,6 +68,33 @@ func (dst *RedisClient) Start(ctx context.Context, host string, port int, passwo
             return -1
         end
     `)
+}
+
+func (dst *RedisClient) startSingle(ctx context.Context, host string, password string) {
+	dst.client = redis.NewClient(&redis.Options{
+		Addr:     host,
+		Password: password,
+		DB:       dst.db,
+	})
+	res := dst.client.Ping(ctx)
+	if res.Err() != nil {
+		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
+	}
+	dst.Info(ctx, "Connected to Redis database: redis://%v/%v", host, dst.db)
+	dst.cluster = nil // Ensure cluster is nil for single instance.
+}
+
+func (dst *RedisClient) startCluster(ctx context.Context, hosts string, password string) {
+	dst.cluster = redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:    strings.Split(hosts, ","),
+		Password: password,
+	})
+	res := dst.cluster.Ping(ctx)
+	if res.Err() != nil {
+		dst.Fatal(ctx, "Failed to connect to Redis cluster: %v", res.Err())
+	}
+	dst.Info(ctx, "Connected to Redis cluster: redis://%v", hosts)
+	dst.client = nil // Ensure client is nil for cluster.
 }
 
 // Get returns value from Redis database by key. If key is not set, returns default value.
@@ -89,7 +113,15 @@ func (dst *RedisClient) Start(ctx context.Context, host string, port int, passwo
 func (dst *RedisClient) Get(ctx context.Context, key string, def string) (string, error) {
 	start := time.Now()
 
-	str, err := dst.client.Get(ctx, key).Result()
+	var str string
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get the value.
+		str, err = dst.cluster.Get(ctx, key).Result()
+	} else {
+		// If using a single Redis instance, use the client to get the value.
+		str, err = dst.client.Get(ctx, key).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) GET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
@@ -115,7 +147,15 @@ func (dst *RedisClient) Get(ctx context.Context, key string, def string) (string
 func (dst *RedisClient) LPos(ctx context.Context, key string, value string) (int, error) {
 	start := time.Now()
 
-	str, err := dst.client.LPos(ctx, key, value, redis.LPosArgs{}).Result()
+	var str int64
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to find the position.
+		str, err = dst.cluster.LPos(ctx, key, value, redis.LPosArgs{}).Result()
+	} else {
+		// If using a single Redis instance, use the client to find the position.
+		str, err = dst.client.LPos(ctx, key, value, redis.LPosArgs{}).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPOS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
@@ -142,7 +182,15 @@ func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, erro
 	start := time.Now()
 
 	results := make([]string, len(keys))
-	strs, err := dst.client.MGet(ctx, keys...).Result()
+	var strs []any
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get multiple values.
+		strs, err = dst.cluster.MGet(ctx, keys...).Result()
+	} else {
+		// If using a single Redis instance, use the client to get multiple values.
+		strs, err = dst.client.MGet(ctx, keys...).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MGET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(keys, ", "))
 	if err != nil {
 		return results, err
@@ -173,7 +221,14 @@ func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, erro
 func (dst *RedisClient) Set(ctx context.Context, key string, value any, expiration int) error {
 	start := time.Now()
 
-	err := dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to set the value.
+		err = dst.cluster.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
+	} else {
+		// If using a single Redis instance, use the client to set the value.
+		err = dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(fmt.Sprintf("%s", value), "\n", " "))
 	return err
 }
@@ -192,7 +247,14 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 	start := time.Now()
 	vals := []string{}
-	pipe := dst.client.TxPipeline()
+	var pipe redis.Pipeliner
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to create a transaction pipeline.
+		pipe = dst.cluster.TxPipeline()
+	} else {
+		// If using a single Redis instance, use the client to create a transaction pipeline.
+		pipe = dst.client.TxPipeline()
+	}
 	for _, set := range *sets {
 		if set.TTL > 0 {
 			pipe.Set(ctx, set.Key, set.Value, time.Duration(set.TTL)*time.Second)
@@ -225,7 +287,15 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64, error) {
 	start := time.Now()
 
-	res, err := dst.client.LPush(ctx, key, value).Result()
+	var res int64
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to push the value.
+		res, err = dst.cluster.LPush(ctx, key, value).Result()
+	} else {
+		// If using a single Redis instance, use the client to push the value.
+		res, err = dst.client.LPush(ctx, key, value).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPUSH(%d) (%.2f ms)\033[1m \033[33m%q=%q\033[0m\033[0m", dst.db, res, float64(time.Since(start))/1000000, key, value)
 	return res, err
 }
@@ -245,7 +315,15 @@ func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64
 func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any) error {
 	start := time.Now()
 
-	res, err := dst.singlePush.Run(ctx, dst.client, []string{key}, value).Result()
+	var res any
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to run the single push script
+		res, err = dst.singlePush.Run(ctx, dst.cluster, []string{key}, value).Result()
+	} else {
+		// If using a single Redis instance, use the client to run the single push script
+		res, err = dst.singlePush.Run(ctx, dst.client, []string{key}, value).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
 	if err != nil {
 		return err
@@ -272,7 +350,15 @@ func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any) e
 func (dst *RedisClient) LRange(ctx context.Context, key string, def string) ([]string, error) {
 	start := time.Now()
 
-	res, err := dst.client.LRange(ctx, key, 0, 0).Result()
+	var res []string
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get the range of values.
+		res, err = dst.cluster.LRange(ctx, key, 0, -1).Result()
+	} else {
+		// If using a single Redis instance, use the client to get the range of values.
+		res, err = dst.client.LRange(ctx, key, 0, -1).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LRANGE (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
@@ -293,7 +379,15 @@ func (dst *RedisClient) LRange(ctx context.Context, key string, def string) ([]s
 func (dst *RedisClient) LLen(ctx context.Context, key string) (int64, error) {
 	start := time.Now()
 
-	res, err := dst.client.LLen(ctx, key).Result()
+	var res int64
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get the length of the list.
+		res, err = dst.cluster.LLen(ctx, key).Result()
+	} else {
+		// If using a single Redis instance, use the client to get the length of the list.
+		res, err = dst.client.LLen(ctx, key).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LLEN (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
@@ -317,7 +411,15 @@ func (dst *RedisClient) LLen(ctx context.Context, key string) (int64, error) {
 func (dst *RedisClient) LRem(ctx context.Context, key string, count int64, value string) error {
 	start := time.Now()
 
-	_, err := dst.client.LRem(ctx, key, count, value).Result()
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to remove the value.
+		_, err = dst.cluster.LRem(ctx, key, count, value).Result()
+	} else {
+		// If using a single Redis instance, use the client to remove the value.
+		_, err = dst.client.LRem(ctx, key, count, value).Result()
+	}
+
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LREM (%.2f ms)\033[1m \033[34m%q %d %q\033[0m", dst.db, float64(time.Since(start))/1000000, key, count, value)
 
 	return err
@@ -339,7 +441,15 @@ func (dst *RedisClient) LRem(ctx context.Context, key string, count int64, value
 func (dst *RedisClient) BLPop(ctx context.Context, key string, def string, ttl uint64) (string, error) {
 	start := time.Now()
 
-	str, err := dst.client.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
+	str := []string{}
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to block pop the value.
+		str, err = dst.cluster.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
+	} else {
+		// If using a single Redis instance, use the client to block pop the value.
+		str, err = dst.client.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLPOP (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
@@ -369,7 +479,15 @@ func (dst *RedisClient) BLPop(ctx context.Context, key string, def string, ttl u
 func (dst *RedisClient) BLMove(ctx context.Context, source, destination, srcpos, dstpos string, def string, ttl uint64) (string, error) {
 	start := time.Now()
 
-	str, err := dst.client.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
+	var str string
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to block move the value.
+		str, err = dst.cluster.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
+	} else {
+		// If using a single Redis instance, use the client to block move the value.
+		str, err = dst.client.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLMOVE (%.2f ms)\033[1m \033[34m%q (%s) -> %q (%s)\033[0m", dst.db, float64(time.Since(start))/1000000, source, srcpos, destination, dstpos)
 	if err != nil {
 		if err == redis.Nil {
@@ -395,7 +513,14 @@ func (dst *RedisClient) BLMove(ctx context.Context, source, destination, srcpos,
 func (dst *RedisClient) Expire(ctx context.Context, key string, ttl uint64) error {
 	start := time.Now()
 
-	err := dst.client.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to set the expiration time.
+		err = dst.cluster.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
+	} else {
+		// If using a single Redis instance, use the client to set the expiration time.
+		err = dst.client.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) EXPIRE (%.2f ms)\033[1m \033[34m%q %d\033[0m", dst.db, float64(time.Since(start))/1000000, key, ttl)
 	return err
 }
@@ -415,7 +540,15 @@ func (dst *RedisClient) Expire(ctx context.Context, key string, ttl uint64) erro
 func (dst *RedisClient) TTL(ctx context.Context, key string) (int64, error) {
 	start := time.Now()
 
-	ttl, err := dst.client.TTL(ctx, key).Result()
+	var ttl time.Duration
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get the TTL.
+		ttl, err = dst.cluster.TTL(ctx, key).Result()
+	} else {
+		// If using a single Redis instance, use the client to get the TTL.
+		ttl, err = dst.client.TTL(ctx, key).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) TTL (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return int64(ttl.Seconds()), err
 }
@@ -433,7 +566,15 @@ func (dst *RedisClient) TTL(ctx context.Context, key string) (int64, error) {
 func (dst *RedisClient) Keys(ctx context.Context, pattern string) ([]string, error) {
 	start := time.Now()
 
-	keys, err := dst.client.Keys(ctx, pattern).Result()
+	var keys []string
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to get the keys.
+		keys, err = dst.cluster.Keys(ctx, pattern).Result()
+	} else {
+		// If using a single Redis instance, use the client to get the keys.
+		keys, err = dst.client.Keys(ctx, pattern).Result()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) KEYS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, pattern)
 	return keys, err
 }
@@ -452,7 +593,14 @@ func (dst *RedisClient) Keys(ctx context.Context, pattern string) ([]string, err
 func (dst *RedisClient) Del(ctx context.Context, key string) error {
 	start := time.Now()
 
-	err := dst.client.Del(ctx, key).Err()
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to delete the key.
+		err = dst.cluster.Del(ctx, key).Err()
+	} else {
+		// If using a single Redis instance, use the client to delete the key.
+		err = dst.client.Del(ctx, key).Err()
+	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return err
 }
@@ -465,4 +613,14 @@ func (dst *RedisClient) Del(ctx context.Context, key string) error {
 //   - A pointer to the redis.Client instance.
 func (dst *RedisClient) Client() *redis.Client {
 	return dst.client
+}
+
+// Cluster returns the underlying Redis cluster client instance.
+// This function is useful for accessing additional Redis cluster client methods that are not directly exposed by the RedisClient struct.
+// It allows you to perform operations that are specific to Redis clusters.
+//
+// Returns:
+//   - A pointer to the redis.ClusterClient instance.
+func (dst *RedisClient) Cluster() *redis.ClusterClient {
+	return dst.cluster
 }
