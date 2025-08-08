@@ -51,14 +51,12 @@ var (
 // This function should be called at the start of the application to establish a connection to Redis.
 // It sets the usedDB variable to the current database number for logging purposes.
 func (dst *RedisClient) Start(ctx context.Context, hosts string, password string, db int) {
-	dst.db = db // Set the usedDB variable to the current database number.
-
 	if strings.Contains(hosts, ",") {
 		// If the hosts contain a comma, it is a cluster of Redis nodes.
 		dst.startCluster(ctx, hosts, password)
 	} else {
 		// If the hosts do not contain a comma, it is a single Redis node.
-		dst.startSingle(ctx, hosts, password)
+		dst.startSingle(ctx, hosts, password, db)
 	}
 
 	dst.singlePush = redis.NewScript(`
@@ -70,7 +68,9 @@ func (dst *RedisClient) Start(ctx context.Context, hosts string, password string
     `)
 }
 
-func (dst *RedisClient) startSingle(ctx context.Context, host string, password string) {
+func (dst *RedisClient) startSingle(ctx context.Context, host string, password string, db int) {
+	dst.db = db // Set the usedDB variable to the current database number.
+
 	dst.client = redis.NewClient(&redis.Options{
 		Addr:     host,
 		Password: password,
@@ -85,6 +85,8 @@ func (dst *RedisClient) startSingle(ctx context.Context, host string, password s
 }
 
 func (dst *RedisClient) startCluster(ctx context.Context, hosts string, password string) {
+	dst.db = 0 // Set the usedDB variable to 0 for cluster, as clusters do not use a specific database number.
+
 	dst.cluster = redis.NewClusterClient(&redis.ClusterOptions{
 		Addrs:    strings.Split(hosts, ","),
 		Password: password,
