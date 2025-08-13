@@ -379,11 +379,11 @@ func (dst *FieldValue) UpdateQuery(table string, id any) (string, time.Time) {
 	fields := fmt.Sprintf("%s,updated_at", strings.Join(dst.Fields, ","))
 	values := fmt.Sprintf("%s,'%s'", strings.Join(dst.Values, ","), update.Format(time.RFC3339Nano))
 	switch v := id.(type) {
-	case uint:
+	case uint, uint8, uint16, uint32, uint64, int, int8, int16, int32, int64:
 		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = %d", table, fields, values, v), update
 	case uuid.UUID:
 		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = '%s'", table, fields, values, v), update
 	default:
-		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = '%s'", table, fields, values, v), update
+		return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE id = '%v'", table, fields, values, v), update
 	}
 }
