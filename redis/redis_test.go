@@ -7,6 +7,7 @@ import (
 
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/ra-company/env"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -186,5 +187,78 @@ func tests(t *testing.T, hosts, password string, db int) {
 			val := fmt.Sprintf("%s", set.Value)
 			require.Equal(t, val, got, "redis.Get()")
 		}
+	})
+
+	t.Run("8 Streams", func(t *testing.T) {
+		stream := faker.Word()
+		group := faker.Word()
+
+		err := Redis.XGroupCreateMkStream(ctx, stream, group, "$")
+		require.NoError(t, err, "XGroupCreateMkStream()")
+
+		defer Redis.XGroupDestroy(ctx, stream, group)
+
+		err = Redis.XGroupCreateMkStream(ctx, stream, group, "$")
+		require.ErrorIs(t, err, ErrorGroupAlreadyExists, "XGroupCreateMkStream()")
+
+		field1 := faker.Word()
+		field2 := faker.Word()
+		add := redis.XAddArgs{
+			Stream: stream,
+			Values: map[string]any{
+				"field1": field1,
+				"field2": field2,
+			},
+			NoMkStream: true,
+		}
+
+		str, err := Redis.XAdd(ctx, &add)
+		require.NoError(t, err, "XAdd()")
+		require.NotEmpty(t, str, "XAdd()")
+
+		readArgs := redis.XReadGroupArgs{
+			Group:    group,
+			Consumer: "test-consumer",
+			Streams:  []string{stream, ">"},
+			Count:    1,
+			Block:    500 * time.Millisecond,
+		}
+		data, err := Redis.XReadGroup(ctx, &readArgs)
+		require.NoError(t, err, "XReadGroup()")
+		require.Len(t, data, 1, "XReadGroup()")
+
+		data, err = Redis.XReadGroup(ctx, &readArgs)
+		require.NoError(t, err, "XReadGroup()")
+		require.Nil(t, data, "XReadGroup()")
+
+		claimArgs := redis.XAutoClaimArgs{
+			Stream:   stream,
+			Group:    group,
+			Consumer: "test-consumer",
+			MinIdle:  1 * time.Millisecond,
+			Count:    1,
+			Start:    "0-0",
+		}
+		claimed, err := Redis.XAutoClaim(ctx, &claimArgs)
+		require.NoError(t, err, "XAutoClaim()")
+		require.Len(t, claimed, 1, "XAutoClaim()")
+		require.Equal(t, claimed[0].ID, str, "XAutoClaim() message ID")
+
+		ackCount, err := Redis.XAck(ctx, stream, group, str)
+		require.NoError(t, err, "XAck()")
+		require.Equal(t, int64(1), ackCount, "XAck()")
+
+		claimed, err = Redis.XAutoClaim(ctx, &claimArgs)
+		require.NoError(t, err, "XAutoClaim() after ack")
+		require.Len(t, claimed, 0, "XAutoClaim() after ack should return no messages")
+
+		ackCount, err = Redis.XAck(ctx, stream, group, str)
+		require.NoError(t, err, "XAck()")
+		require.Equal(t, int64(0), ackCount, "XAck()")
+
+		add.Stream = stream + "-1"
+		str, err = Redis.XAdd(ctx, &add)
+		require.Error(t, err, "XAdd() with different stream")
+		require.Empty(t, str, "XAdd() with different stream")
 	})
 }

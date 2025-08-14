@@ -32,7 +32,8 @@ type RedisClient struct {
 var (
 	Redis RedisClient // Redis: is the global Redis client used to interact with the Redis server.
 
-	ErrorListIsNotEmpty = errors.New("list is not empty")
+	ErrorListIsNotEmpty     = errors.New("list is not empty")
+	ErrorGroupAlreadyExists = errors.New("group already exists")
 )
 
 // Start initializes the Redis client with the provided host, port, password, and database number.
@@ -605,6 +606,182 @@ func (dst *RedisClient) Del(ctx context.Context, key string) error {
 	}
 	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return err
+}
+
+// XGroupCreateMkStream creates a new stream group with the specified start command.
+// If the stream does not exist, it creates the stream with the specified start command.
+// If the group already exists, it returns an error.
+// This function uses the Redis XGROUP CREATE command with the MKSTREAM option to create the group.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - stream: The name of the stream to create the group for.
+//   - group: The name of the group to create.
+//   - start: The start command for the group, typically "$" to start from the latest message.
+//
+// Returns:
+//   - An error if the operation fails, or if the group already exists.
+func (dst *RedisClient) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
+	startTime := time.Now()
+
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to create the stream.
+		err = dst.cluster.XGroupCreateMkStream(ctx, stream, group, start).Err()
+	} else {
+		// If using a single Redis instance, use the client to create the stream.
+		err = dst.client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP CREATE MKSTREAM (%.2f ms)\033[1m \033[33m %q %q %q\033[0m", dst.db, float64(time.Since(startTime))/1000000, stream, group, start)
+	if err != nil && err.Error() == "BUSYGROUP Consumer Group name already exists" {
+		return ErrorGroupAlreadyExists
+	}
+
+	return err
+}
+
+// XGroupDestroy removes a stream group from Redis.
+// If the group does not exist, it returns an error.
+// This function uses the Redis XGROUP DESTROY command to remove the group.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - stream: The name of the stream to destroy the group from.
+//   - group: The name of the group to destroy.
+//
+// Returns:
+//   - An error if the operation fails, or if the group does not exist.
+func (dst *RedisClient) XGroupDestroy(ctx context.Context, stream, group string) error {
+	start := time.Now()
+
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to destroy the group.
+		err = dst.cluster.XGroupDestroy(ctx, stream, group).Err()
+	} else {
+		// If using a single Redis instance, use the client to destroy the group.
+		err = dst.client.XGroupDestroy(ctx, stream, group).Err()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP DESTROY (%.2f ms)\033[1m \033[31m%q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group)
+	return err
+}
+
+// XGroupDelConsumer removes a consumer from a stream group in Redis.
+// If the consumer does not exist, it returns an error.
+// This function uses the Redis XGROUP DELCONSUMER command to delete the consumer.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - stream: The name of the stream to delete the consumer from.
+//   - group: The name of the group to delete the consumer from.
+//   - consumer: The name of the consumer to delete.
+//
+// Returns:
+//   - An error if the operation fails, or if the consumer does not exist.
+func (dst *RedisClient) XGroupDelConsumer(ctx context.Context, stream, group, consumer string) error {
+	start := time.Now()
+
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to delete the consumer.
+		err = dst.cluster.XGroupDelConsumer(ctx, stream, group, consumer).Err()
+	} else {
+		// If using a single Redis instance, use the client to delete the consumer.
+		err = dst.client.XGroupDelConsumer(ctx, stream, group, consumer).Err()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP DEL CONSUMER (%.2f ms)\033[1m \033[31m%q %q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, consumer)
+	return err
+}
+
+func (dst *RedisClient) XAdd(ctx context.Context, args *redis.XAddArgs) (string, error) {
+	start := time.Now()
+
+	var id string
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to add the message.
+		id, err = dst.cluster.XAdd(ctx, args).Result()
+	} else {
+		// If using a single Redis instance, use the client to add the message.
+		id, err = dst.client.XAdd(ctx, args).Result()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XADD (%.2f ms)\033[1m \033[33m%q \"%s\"\033[36m | %s\033[0m", dst.db, float64(time.Since(start))/1000000, args.Stream, strings.ReplaceAll(fmt.Sprintf("%v", args.Values), "\n", " "), id)
+	return id, err
+}
+
+// XReadGroup reads messages from a stream group in Redis.
+// It retrieves messages from the specified stream and group, starting from the last acknowledged message.
+// If the group does not exist, it returns an error.
+// This function uses the Redis XREADGROUP command to read messages from the group.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - args: The arguments for reading from the group, including the group name, stream names, and count.
+//
+// Returns:
+//   - A slice of XStream containing the messages read from the group.
+//   - An error if the operation fails, or if the group does not exist.
+func (dst *RedisClient) XReadGroup(ctx context.Context, args *redis.XReadGroupArgs) ([]redis.XStream, error) {
+	start := time.Now()
+
+	var messages []redis.XStream
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to read from the group.
+		messages, err = dst.cluster.XReadGroup(ctx, args).Result()
+	} else {
+		// If using a single Redis instance, use the client to read from the group.
+		messages, err = dst.client.XReadGroup(ctx, args).Result()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XREADGROUP (%.2f ms)\033[1m \033[34m%q \"%s\" %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, strings.Join(args.Streams, `" "`), args.Count)
+	if err != nil && err.Error() == "redis: nil" {
+		return nil, nil
+	}
+	return messages, err
+}
+
+// XAutoClaim auto claims messages from a stream group in Redis.
+// It retrieves messages that have not been acknowledged by the specified group and reassigns them to the group.
+// If the group does not exist, it returns an error.
+// This function uses the Redis XAUTOCLAIM command to auto claim messages.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - args: The arguments for auto claiming messages, including the group name, stream name, and count.
+//
+// Returns:
+//   - A slice of XMessage containing the messages that have been auto claimed.
+//   - An error if the operation fails, or if the group does not exist.
+func (dst *RedisClient) XAutoClaim(ctx context.Context, args *redis.XAutoClaimArgs) ([]redis.XMessage, error) {
+	start := time.Now()
+
+	var messages []redis.XMessage
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to auto claim messages.
+		messages, _, err = dst.cluster.XAutoClaim(ctx, args).Result()
+	} else {
+		// If using a single Redis instance, use the client to auto claim messages.
+		messages, _, err = dst.client.XAutoClaim(ctx, args).Result()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XAUTOCLAIM (%.2f ms)\033[1m \033[34m%q %q %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, args.Stream, args.Count)
+	return messages, err
+}
+
+func (dst *RedisClient) XAck(ctx context.Context, stream, group string, ids ...string) (int64, error) {
+	start := time.Now()
+
+	var count int64
+	var err error
+	if dst.cluster != nil {
+		// If using a Redis cluster, use the cluster client to acknowledge messages.
+		count, err = dst.cluster.XAck(ctx, stream, group, ids...).Result()
+	} else {
+		// If using a single Redis instance, use the client to acknowledge messages.
+		count, err = dst.client.XAck(ctx, stream, group, ids...).Result()
+	}
+	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XACK (%.2f ms)\033[1m \033[33m%q %q \"%s\"\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, strings.Join(ids, " "))
+	return count, err
 }
 
 // Client returns the underlying Redis client instance.
