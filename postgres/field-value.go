@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ra-company/database"
 )
 
 // FieldValue is a structure to build a PostgreSQL update query.
@@ -39,7 +40,7 @@ func (dst *FieldValue) String(was, is, field string) {
 //   - field: the name of the field being added, which will be appended to the Fields slice.
 func (dst *FieldValue) AddString(is, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", ToStr(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", database.ToStr(is)))
 }
 
 // UInt8 compares two uint8 values and adds the new value to the Fields and Values slices if they differ.
@@ -241,7 +242,7 @@ func (dst *FieldValue) AddJSON(is any, field string) error {
 		return err
 	}
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", ToStr(string(data))))
+	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", database.ToStr(string(data))))
 	return nil
 }
 
@@ -265,7 +266,7 @@ func (dst *FieldValue) Int8Slice(was, is []int8, field string) {
 //   - field: the name of the field being added, which will be appended to the Fields slice.
 func (dst *FieldValue) AddInt8Slice(is []int8, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", ArrayToString(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", database.ArrayToString(is)))
 }
 
 // Int16Slice compares two slices of int16 values and adds the new slice to the Fields and Values slices if they differ.
@@ -288,7 +289,7 @@ func (dst *FieldValue) Int16Slice(was, is []int16, field string) {
 //   - field: the name of the field being added, which will be appended to the
 func (dst *FieldValue) AddInt16Slice(is []int16, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", ArrayToString(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::SMALLINT[]", database.ArrayToString(is)))
 }
 
 // Int32Slice compares two slices of int32 values and adds the new slice to the Fields and Values slices if they differ.
@@ -310,7 +311,7 @@ func (dst *FieldValue) Int32Slice(was, is []int32, field string) {
 //   - field: the name of the field being added, which will be appended to the
 func (dst *FieldValue) AddInt32Slice(is []int32, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::INTEGER[]", ArrayToString(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::INTEGER[]", database.ArrayToString(is)))
 }
 
 // Int64Slice compares two slices of int64 values and adds the new slice to the Fields and Values slices if they differ.
@@ -333,7 +334,7 @@ func (dst *FieldValue) Int64Slice(was, is []int64, field string) {
 //   - field: the name of the field being added, which will be appended to the Fields slice.
 func (dst *FieldValue) AddInt64Slice(is []int64, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::BIGINT[]", ArrayToString(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::BIGINT[]", database.ArrayToString(is)))
 }
 
 // StringSlice compares two slices of string values and adds the new slice to the Fields and Values slices if they differ.
@@ -356,7 +357,7 @@ func (dst *FieldValue) StringSlice(was, is []string, field string) {
 //   - field: the name of the field being added, which will be appended to the Fields slice.
 func (dst *FieldValue) AddStringSlice(is []string, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::VARCHAR[]", ArrayToString(is)))
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::VARCHAR[]", database.ArrayToString(is)))
 }
 
 // UpdateQuery generates a PostgreSQL update query string using the collected fields and values.
