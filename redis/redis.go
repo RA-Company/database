@@ -27,6 +27,8 @@ type RedisClient struct {
 	cluster              *redis.ClusterClient // cluster: is a Redis cluster client used for connecting to a Redis cluster.
 	singlePush           *redis.Script        // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
 	db                   int                  // db: is the Redis database number, used for logging purposes.
+	DoNotLogQueries      bool                 // DoNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
+	lastQuery            string               // LastQuery: is the last executed Redis query, used for debugging and logging purposes.
 }
 
 var (
@@ -125,7 +127,7 @@ func (dst *RedisClient) Get(ctx context.Context, key string, def string) (string
 		// If using a single Redis instance, use the client to get the value.
 		str, err = dst.client.Get(ctx, key).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) GET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) GET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -159,7 +161,7 @@ func (dst *RedisClient) LPos(ctx context.Context, key string, value string) (int
 		// If using a single Redis instance, use the client to find the position.
 		str, err = dst.client.LPos(ctx, key, value, redis.LPosArgs{}).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPOS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) LPOS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return -1, nil
@@ -194,7 +196,7 @@ func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, erro
 		// If using a single Redis instance, use the client to get multiple values.
 		strs, err = dst.client.MGet(ctx, keys...).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MGET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(keys, ", "))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) MGET (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(keys, ", "))
 	if err != nil {
 		return results, err
 	}
@@ -232,7 +234,7 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 		// If using a single Redis instance, use the client to set the value.
 		err = dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(fmt.Sprintf("%s", value), "\n", " "))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(fmt.Sprintf("%s", value), "\n", " "))
 	return err
 }
 
@@ -267,7 +269,7 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(fmt.Sprintf("%s", set.Value), "\n", " ")))
 	}
 	_, err := pipe.Exec(ctx)
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
 	if err != nil {
 		return err
 	}
@@ -299,7 +301,7 @@ func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64
 		// If using a single Redis instance, use the client to push the value.
 		res, err = dst.client.LPush(ctx, key, value).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LPUSH(%d) (%.2f ms)\033[1m \033[33m%q=%q\033[0m\033[0m", dst.db, res, float64(time.Since(start))/1000000, key, value)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) LPUSH(%d) (%.2f ms)\033[1m \033[33m%q=%q\033[0m\033[0m", dst.db, res, float64(time.Since(start))/1000000, key, value)
 	return res, err
 }
 
@@ -327,7 +329,7 @@ func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any) e
 		// If using a single Redis instance, use the client to run the single push script
 		res, err = dst.singlePush.Run(ctx, dst.client, []string{key}, value).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
 	if err != nil {
 		return err
 	}
@@ -362,7 +364,7 @@ func (dst *RedisClient) LRange(ctx context.Context, key string, def string) ([]s
 		// If using a single Redis instance, use the client to get the range of values.
 		res, err = dst.client.LRange(ctx, key, 0, -1).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LRANGE (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) LRANGE (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
 }
@@ -391,7 +393,7 @@ func (dst *RedisClient) LLen(ctx context.Context, key string) (int64, error) {
 		// If using a single Redis instance, use the client to get the length of the list.
 		res, err = dst.client.LLen(ctx, key).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LLEN (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) LLEN (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 
 	return res, err
 }
@@ -423,7 +425,7 @@ func (dst *RedisClient) LRem(ctx context.Context, key string, count int64, value
 		_, err = dst.client.LRem(ctx, key, count, value).Result()
 	}
 
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) LREM (%.2f ms)\033[1m \033[34m%q %d %q\033[0m", dst.db, float64(time.Since(start))/1000000, key, count, value)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) LREM (%.2f ms)\033[1m \033[34m%q %d %q\033[0m", dst.db, float64(time.Since(start))/1000000, key, count, value)
 
 	return err
 }
@@ -444,7 +446,7 @@ func (dst *RedisClient) LRem(ctx context.Context, key string, count int64, value
 func (dst *RedisClient) BLPop(ctx context.Context, key string, def string, ttl uint64) (string, error) {
 	start := time.Now()
 
-	str := []string{}
+	var str []string
 	var err error
 	if dst.cluster != nil {
 		// If using a Redis cluster, use the cluster client to block pop the value.
@@ -453,7 +455,7 @@ func (dst *RedisClient) BLPop(ctx context.Context, key string, def string, ttl u
 		// If using a single Redis instance, use the client to block pop the value.
 		str, err = dst.client.BLPop(ctx, time.Duration(ttl)*time.Second, key).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLPOP (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) BLPOP (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -491,7 +493,7 @@ func (dst *RedisClient) BLMove(ctx context.Context, source, destination, srcpos,
 		// If using a single Redis instance, use the client to block move the value.
 		str, err = dst.client.BLMove(ctx, source, destination, srcpos, dstpos, time.Duration(ttl)*time.Second).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) BLMOVE (%.2f ms)\033[1m \033[34m%q (%s) -> %q (%s)\033[0m", dst.db, float64(time.Since(start))/1000000, source, srcpos, destination, dstpos)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) BLMOVE (%.2f ms)\033[1m \033[34m%q (%s) -> %q (%s)\033[0m", dst.db, float64(time.Since(start))/1000000, source, srcpos, destination, dstpos)
 	if err != nil {
 		if err == redis.Nil {
 			return def, nil
@@ -524,7 +526,7 @@ func (dst *RedisClient) Expire(ctx context.Context, key string, ttl uint64) erro
 		// If using a single Redis instance, use the client to set the expiration time.
 		err = dst.client.Expire(ctx, key, time.Duration(ttl)*time.Second).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) EXPIRE (%.2f ms)\033[1m \033[34m%q %d\033[0m", dst.db, float64(time.Since(start))/1000000, key, ttl)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) EXPIRE (%.2f ms)\033[1m \033[34m%q %d\033[0m", dst.db, float64(time.Since(start))/1000000, key, ttl)
 	return err
 }
 
@@ -552,7 +554,7 @@ func (dst *RedisClient) TTL(ctx context.Context, key string) (int64, error) {
 		// If using a single Redis instance, use the client to get the TTL.
 		ttl, err = dst.client.TTL(ctx, key).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) TTL (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) TTL (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return int64(ttl.Seconds()), err
 }
 
@@ -578,7 +580,7 @@ func (dst *RedisClient) Keys(ctx context.Context, pattern string) ([]string, err
 		// If using a single Redis instance, use the client to get the keys.
 		keys, err = dst.client.Keys(ctx, pattern).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) KEYS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, pattern)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) KEYS (%.2f ms)\033[1m \033[34m%q\033[0m", dst.db, float64(time.Since(start))/1000000, pattern)
 	return keys, err
 }
 
@@ -604,7 +606,7 @@ func (dst *RedisClient) Del(ctx context.Context, key string) error {
 		// If using a single Redis instance, use the client to delete the key.
 		err = dst.client.Del(ctx, key).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) DEL (%.2f ms)\033[1m \033[31m%q\033[0m", dst.db, float64(time.Since(start))/1000000, key)
 	return err
 }
 
@@ -632,7 +634,7 @@ func (dst *RedisClient) XGroupCreateMkStream(ctx context.Context, stream, group,
 		// If using a single Redis instance, use the client to create the stream.
 		err = dst.client.XGroupCreateMkStream(ctx, stream, group, start).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP CREATE MKSTREAM (%.2f ms)\033[1m \033[33m %q %q %q\033[0m", dst.db, float64(time.Since(startTime))/1000000, stream, group, start)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XGROUP CREATE MKSTREAM (%.2f ms)\033[1m \033[33m %q %q %q\033[0m", dst.db, float64(time.Since(startTime))/1000000, stream, group, start)
 	if err != nil && err.Error() == "BUSYGROUP Consumer Group name already exists" {
 		return ErrorGroupAlreadyExists
 	}
@@ -662,7 +664,7 @@ func (dst *RedisClient) XGroupDestroy(ctx context.Context, stream, group string)
 		// If using a single Redis instance, use the client to destroy the group.
 		err = dst.client.XGroupDestroy(ctx, stream, group).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP DESTROY (%.2f ms)\033[1m \033[31m%q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XGROUP DESTROY (%.2f ms)\033[1m \033[31m%q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group)
 	return err
 }
 
@@ -689,7 +691,7 @@ func (dst *RedisClient) XGroupDelConsumer(ctx context.Context, stream, group, co
 		// If using a single Redis instance, use the client to delete the consumer.
 		err = dst.client.XGroupDelConsumer(ctx, stream, group, consumer).Err()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XGROUP DEL CONSUMER (%.2f ms)\033[1m \033[31m%q %q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, consumer)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XGROUP DEL CONSUMER (%.2f ms)\033[1m \033[31m%q %q %q\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, consumer)
 	return err
 }
 
@@ -705,7 +707,7 @@ func (dst *RedisClient) XAdd(ctx context.Context, args *redis.XAddArgs) (string,
 		// If using a single Redis instance, use the client to add the message.
 		id, err = dst.client.XAdd(ctx, args).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XADD (%.2f ms)\033[1m \033[33m%q \"%s\"\033[36m | %s\033[0m", dst.db, float64(time.Since(start))/1000000, args.Stream, strings.ReplaceAll(fmt.Sprintf("%v", args.Values), "\n", " "), id)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XADD (%.2f ms)\033[1m \033[33m%q \"%s\"\033[36m | %s\033[0m", dst.db, float64(time.Since(start))/1000000, args.Stream, strings.ReplaceAll(fmt.Sprintf("%v", args.Values), "\n", " "), id)
 	return id, err
 }
 
@@ -733,7 +735,7 @@ func (dst *RedisClient) XReadGroup(ctx context.Context, args *redis.XReadGroupAr
 		// If using a single Redis instance, use the client to read from the group.
 		messages, err = dst.client.XReadGroup(ctx, args).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XREADGROUP (%.2f ms)\033[1m \033[34m%q \"%s\" %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, strings.Join(args.Streams, `" "`), args.Count)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XREADGROUP (%.2f ms)\033[1m \033[34m%q \"%s\" %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, strings.Join(args.Streams, `" "`), args.Count)
 	if err != nil && err.Error() == "redis: nil" {
 		return nil, nil
 	}
@@ -764,7 +766,7 @@ func (dst *RedisClient) XAutoClaim(ctx context.Context, args *redis.XAutoClaimAr
 		// If using a single Redis instance, use the client to auto claim messages.
 		messages, _, err = dst.client.XAutoClaim(ctx, args).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XAUTOCLAIM (%.2f ms)\033[1m \033[34m%q %q %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, args.Stream, args.Count)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XAUTOCLAIM (%.2f ms)\033[1m \033[34m%q %q %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, args.Stream, args.Count)
 	return messages, err
 }
 
@@ -780,8 +782,20 @@ func (dst *RedisClient) XAck(ctx context.Context, stream, group string, ids ...s
 		// If using a single Redis instance, use the client to acknowledge messages.
 		count, err = dst.client.XAck(ctx, stream, group, ids...).Result()
 	}
-	dst.Debug(ctx, "\033[1m\033[36mRedis(%d) XACK (%.2f ms)\033[1m \033[33m%q %q \"%s\"\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, strings.Join(ids, " "))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XACK (%.2f ms)\033[1m \033[33m%q %q \"%s\"\033[0m", dst.db, float64(time.Since(start))/1000000, stream, group, strings.Join(ids, " "))
 	return count, err
+}
+
+func (dst *RedisClient) logQuery(args ...any) {
+	if len(args) > 1 {
+		dst.lastQuery = fmt.Sprintf(args[1].(string), args[2:]...)
+	} else {
+		dst.lastQuery = fmt.Sprint(args[1:]...)
+	}
+	if dst.DoNotLogQueries {
+		return
+	}
+	dst.Debug(args[0].(context.Context), dst.lastQuery)
 }
 
 // Client returns the underlying Redis client instance.
@@ -802,4 +816,14 @@ func (dst *RedisClient) Client() *redis.Client {
 //   - A pointer to the redis.ClusterClient instance.
 func (dst *RedisClient) Cluster() *redis.ClusterClient {
 	return dst.cluster
+}
+
+// LastQuery returns the last executed Redis query as a string.
+// This function is useful for debugging purposes, allowing you to see the last query executed by the RedisClient.
+//
+// Returns:
+//   - A string containing the last executed query.
+func (dst *RedisClient) LastQuery() string {
+	// Returns the last executed query as a string.
+	return dst.lastQuery
 }
