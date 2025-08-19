@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ra-company/logging"
-	"gitlab.com/ra-com/vpn/main.git/pkg/config"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -87,7 +86,7 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 		os.Exit(1)
 	}
 
-	dst.Info("Connected to ClickHouse Database: host - %v, port - %v, database - %v, user - %v", config.ClickHouseHost, config.ClickHousePort, config.ClickHouseDB, config.ClickHouseUser)
+	dst.Info("Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", hosts, db, username)
 	dst.Info("ClickHouse Server Version: %v", v)
 }
 
