@@ -57,10 +57,9 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 			fmt.Printf(format, v)
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time":             60,
-			"insert_quorum":                  2,
-			"insert_quorum_timeout":          60000,
-			"distributed_insert_deduplicate": 1,
+			"max_execution_time":    60,
+			"insert_quorum":         2,
+			"insert_quorum_timeout": 60000,
 		},
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
