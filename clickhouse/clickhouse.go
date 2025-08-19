@@ -34,15 +34,15 @@ type ClickHouseClient struct {
 //
 // Parameters:
 //   - ctx (context.Context): The context for the connection.
+//   - hosts (string): The host addresses of the ClickHouse server.
 //   - username (string): The username for authentication.
 //   - password (string): The password for authentication.
-//   - host (string): The host address of the ClickHouse server.
 //   - db (string): The name of the database to connect to.
-func (dst *ClickHouseClient) Start(ctx context.Context, username, password, host string, db string) {
+func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, password, db string) {
 	var err error
 	dialCount := 0
 	dst.client, err = clickhouse.Open(&clickhouse.Options{
-		Addr: strings.Split(host, ","),
+		Addr: strings.Split(hosts, ","),
 		Auth: clickhouse.Auth{
 			Database: db,
 			Username: username,
