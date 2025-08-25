@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -83,7 +84,14 @@ func (dst *RedisClient) startSingle(ctx context.Context, host string, password s
 	if res.Err() != nil {
 		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
 	}
+
+	info, err := dst.client.Info(ctx, "server").Result()
+	if err != nil {
+		log.Fatalf("Failed to get redis info: %v", err)
+	}
+
 	dst.Info(ctx, "Connected to Redis database: redis://%v/%v", host, dst.db)
+	dst.logServerInfo(ctx, info)
 	dst.cluster = nil // Ensure cluster is nil for single instance.
 }
 
@@ -98,8 +106,32 @@ func (dst *RedisClient) startCluster(ctx context.Context, hosts string, password
 	if res.Err() != nil {
 		dst.Fatal(ctx, "Failed to connect to Redis cluster: %v", res.Err())
 	}
+
+	info, err := dst.cluster.Info(ctx, "server").Result()
+	if err != nil {
+		log.Fatalf("Failed to get redis info: %v", err)
+	}
+
 	dst.Info(ctx, "Connected to Redis cluster: redis://%v", hosts)
+	dst.logServerInfo(ctx, info)
 	dst.client = nil // Ensure client is nil for cluster.
+}
+
+func (dst *RedisClient) logServerInfo(ctx context.Context, info string) {
+	result := make(map[string]string)
+	lines := strings.SplitSeq(info, "\n")
+	for line := range lines {
+		if strings.Contains(line, ":") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				result[key] = value
+			}
+		}
+	}
+
+	dst.Info(ctx, "Redis version %s (%s), %s", result["redis_version"], result["redis_mode"], result["os"])
 }
 
 // Get returns value from Redis database by key. If key is not set, returns default value.

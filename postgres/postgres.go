@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -35,11 +36,11 @@ type PostgresClient struct {
 //
 // Parameters:
 //   - ctx: The context for the operation, used for cancellation and timeout.
+//   - host: The host (with port) where the PostgreSQL database is running.
 //   - username: The username for the PostgreSQL database.
 //   - password: The password for the PostgreSQL database.
-//   - host: The host (with port) where the PostgreSQL database is running.
 //   - db: The name of the PostgreSQL database to connect to.
-func (dst *PostgresClient) Start(ctx context.Context, username, password, host string, db string) {
+func (dst *PostgresClient) Start(ctx context.Context, host, username, password string, db string) {
 	var err error
 	var connectionString string
 
@@ -64,6 +65,13 @@ func (dst *PostgresClient) Start(ctx context.Context, username, password, host s
 	} else {
 		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", host, db, username)
 	}
+
+	var fullVersion string
+	err = dst.client.QueryRow(ctx, "SELECT version()").Scan(&fullVersion)
+	if err != nil {
+		log.Fatalf("Query failed: %v", err)
+	}
+	dst.Info(ctx, "PostgreSQL version %s", fullVersion)
 }
 
 // Stop closes the PostgreSQL connection pool and logs a message indicating that the disconnection was successful.

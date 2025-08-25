@@ -74,30 +74,33 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 	})
 
 	if err != nil {
-		dst.Fatal("ClickHouse connection error: %v", err)
+		dst.Fatal(ctx, "ClickHouse connection error: %v", err)
 		os.Exit(1)
 	}
 
 	v, err := dst.client.ServerVersion()
 
 	if err != nil {
-		dst.Fatal("ClickHouse connection error: %v", err)
+		dst.Fatal(ctx, "ClickHouse connection error: %v", err)
 		os.Exit(1)
 	}
 
-	dst.Info("Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", hosts, db, username)
-	dst.Info("ClickHouse Server Version: %v", v)
+	dst.Info(ctx, "Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", hosts, db, username)
+	dst.Info(ctx, "ClickHouse Server Version: %v", v)
 }
 
 // Stop closes the ClickHouse client connection and logs a message indicating disconnection.
 // It does not return any error, as the disconnection is expected to be successful.
 // This function is typically called when the application is shutting down or when the ClickHouse client is no longer needed.
 // It ensures that the client connection is properly closed to free up resources.
-func (dst *ClickHouseClient) Stop() {
+//
+// Parameters:
+//   - ctx (context.Context): The context for the operation.
+func (dst *ClickHouseClient) Stop(ctx context.Context) {
 	if dst.client != nil {
 		dst.client.Close()
 	}
-	dst.Info("Disconnected from ClickHouse Database")
+	dst.Info(ctx, "Disconnected from ClickHouse Database")
 }
 
 // Insert executes an insert query on the ClickHouse database.
