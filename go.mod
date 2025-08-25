@@ -4,18 +4,18 @@ go 1.25.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
-	github.com/brianvoe/gofakeit/v7 v7.3.0
+	github.com/brianvoe/gofakeit/v7 v7.4.0
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/ra-company/env v1.0.1
 	github.com/ra-company/logging v1.0.7
 	github.com/redis/go-redis/v9 v9.12.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.67.0 // indirect
+	github.com/ClickHouse/ch-go v0.68.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
