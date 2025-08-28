@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -83,4 +84,10 @@ func StringsToString(arr []string) string {
 //   - A string with single quotes replaced by two single quotes.
 func ToStr(str string) string {
 	return strings.Replace(str, "'", "''", -1)
+}
+
+func OneLine(str string) string {
+	var spaceRe = regexp.MustCompile(`\s+`)
+	str = spaceRe.ReplaceAllString(str, " ")
+	return strings.TrimSpace(str)
 }

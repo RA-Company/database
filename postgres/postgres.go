@@ -102,7 +102,7 @@ func (dst *PostgresClient) Select(ctx context.Context, model string, query strin
 	start := time.Now()
 
 	err := pgxscan.Select(ctx, dst.client, data, query)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 
 	return err
 }
@@ -135,7 +135,7 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 
 	var res pgx.Rows
 	res, err = tx.Query(ctx, query+" RETURNING id")
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		tx.Rollback(ctx)
 		dst.Error(ctx, err)
@@ -194,7 +194,7 @@ func (dst *PostgresClient) InsertUUID(ctx context.Context, model string, query s
 
 	var res pgx.Rows
 	res, err = tx.Query(ctx, query+" RETURNING id")
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		tx.Rollback(ctx)
 		dst.Error(ctx, err)
@@ -256,7 +256,7 @@ func (dst *PostgresClient) Update(ctx context.Context, model string, query strin
 
 	var res pgconn.CommandTag
 	res, err = tx.Exec(ctx, query)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", ""), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		tx.Rollback(ctx)
 		dst.Error(ctx, err)
@@ -309,7 +309,7 @@ func (dst *PostgresClient) Delete(ctx context.Context, model string, query strin
 
 	var res pgconn.CommandTag
 	res, err = tx.Exec(ctx, query)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Delete (%.2f ms)\033[1m \033[31m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Delete (%.2f ms)\033[1m \033[31m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		tx.Rollback(ctx)
 		dst.Error(ctx, err)
@@ -354,7 +354,7 @@ func (dst *PostgresClient) Count(ctx context.Context, model string, query string
 
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		return 0, err
 	}
@@ -381,7 +381,7 @@ func (dst *PostgresClient) Max(ctx context.Context, model, query string) (uint64
 
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s MAX (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s MAX (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		return 0, err
 	}
@@ -405,7 +405,7 @@ func (dst *PostgresClient) Exec(ctx context.Context, model string, query string)
 	start := time.Now()
 
 	_, err := dst.client.Exec(ctx, query)
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Exec (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Exec (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	if err != nil {
 		return err
 	}
@@ -422,7 +422,7 @@ func (dst *PostgresClient) Exec(ctx context.Context, model string, query string)
 //   - model: The name of the model being queried, used for logging.
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
-	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, strings.ReplaceAll(strings.ReplaceAll(query, "\n", " "), "\t", ""))
+	dst.Debug(ctx, "\033[1m\033[36mPG %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 // Client returns the PostgreSQL connection pool.

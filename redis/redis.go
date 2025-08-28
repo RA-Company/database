@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ra-company/database"
 	"github.com/ra-company/logging"
 
 	"github.com/redis/go-redis/v9"
@@ -266,7 +267,7 @@ func (dst *RedisClient) Set(ctx context.Context, key string, value any, expirati
 		// If using a single Redis instance, use the client to set the value.
 		err = dst.client.Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
 	}
-	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, strings.ReplaceAll(fmt.Sprintf("%s", value), "\n", " "))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, database.OneLine(fmt.Sprintf("%s", value)))
 	return err
 }
 
@@ -298,7 +299,7 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets *[]Set) error {
 		} else {
 			pipe.Set(ctx, set.Key, set.Value, 0)
 		}
-		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, strings.ReplaceAll(fmt.Sprintf("%s", set.Value), "\n", " ")))
+		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, database.OneLine(fmt.Sprintf("%s", set.Value))))
 	}
 	_, err := pipe.Exec(ctx)
 	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
@@ -739,7 +740,7 @@ func (dst *RedisClient) XAdd(ctx context.Context, args *redis.XAddArgs) (string,
 		// If using a single Redis instance, use the client to add the message.
 		id, err = dst.client.XAdd(ctx, args).Result()
 	}
-	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XADD (%.2f ms)\033[1m \033[33m%q \"%s\"\033[36m | %s\033[0m", dst.db, float64(time.Since(start))/1000000, args.Stream, strings.ReplaceAll(fmt.Sprintf("%v", args.Values), "\n", " "), id)
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XADD (%.2f ms)\033[1m \033[33m%q \"%s\"\033[36m | %s\033[0m", dst.db, float64(time.Since(start))/1000000, args.Stream, database.OneLine(fmt.Sprintf("%v", args.Values)), id)
 	return id, err
 }
 

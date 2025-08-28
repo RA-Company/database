@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,4 +40,15 @@ func TestArrayToString(t *testing.T) {
 			require.Equal(t, tt.want, got, "ArrayToString()")
 		})
 	}
+}
+
+func ExampleOneLine() {
+	fmt.Println(OneLine("   Hello,    World!   "))
+	fmt.Println(OneLine(`SELECT    *  
+		FROM  test_table
+		WHERE  id = 1`))
+
+	// Unordered output:
+	// Hello, World!
+	// SELECT * FROM test_table WHERE id = 1
 }
