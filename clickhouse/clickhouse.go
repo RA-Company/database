@@ -162,13 +162,37 @@ func (dst *ClickHouseClient) Count(ctx context.Context, model string, query stri
 	start := time.Now()
 
 	var n uint64
-	err := dst.client.QueryRow(context.Background(), query).Scan(&n)
+	err := dst.client.QueryRow(ctx, query).Scan(&n)
 
 	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
 		return 0, err
 	}
 
 	return n, nil
+}
+
+// Scan executes a query on the ClickHouse database and scans the result into the provided destination variables.
+// It takes a context, a model name, a query string, and a variadic list of destination variables.
+// The function logs the execution time and the query, and returns any error encountered during execution.
+// The model name is used for logging purposes to identify the operation being performed.
+//
+// Parameters:
+//   - ctx (context.Context): The context for the operation.
+//   - model (string): The name of the model being queried.
+//   - query (string): The SQL query to be executed.
+//   - dest (...any): A variadic list of destination variables to scan the result into.
+//
+// Returns:
+//   - error: An error if the execution fails, or nil if it succeeds.
+func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query string, dest ...any) error {
+	start := time.Now()
+
+	err := dst.client.QueryRow(ctx, query).Scan(dest...)
+	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+		return err
+	}
+
+	return err
 }
 
 // Select executes a select query on the ClickHouse database.
