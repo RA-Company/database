@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -45,9 +46,9 @@ func (dst *PostgresClient) Start(ctx context.Context, host, username, password s
 	var connectionString string
 
 	if strings.Contains(host, ",") {
-		connectionString = fmt.Sprintf("postgres://%s:%s@%s/%s?target_session_attrs=read-write", username, password, host, db)
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s?target_session_attrs=read-write", url.UserPassword(username, password), host, db)
 	} else {
-		connectionString = fmt.Sprintf("postgres://%s:%s@%s/%s", username, password, host, db)
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s", url.UserPassword(username, password), host, db)
 	}
 
 	dst.client, err = pgxpool.New(ctx, connectionString)

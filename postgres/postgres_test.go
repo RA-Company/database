@@ -18,5 +18,5 @@ func Test(t *testing.T) {
 	require.NotEmpty(t, user, "PG_USER environment variable must be set for ClickHouse tests")
 
 	PG.Start(ctx, host, user, password, db)
-
+	PG.client.Close()
 }
