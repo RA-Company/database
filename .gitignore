@@ -10,3 +10,5 @@ tmp
 !.vscode/launch.json
 !.vscode/extensions.json
 .history/*
+coverage.out
+.scannerwork/*

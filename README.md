@@ -15,5 +15,8 @@ To update library to the latest version, use go get -u github.com/ra-company/das
 # Supported go versions
 We currently support the most recent major Go versions from 1.25.0 onward.
 
+# SAST
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RA-Company_database&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RA-Company_database)
+
 # License
 This project is licensed under the terms of the GPL-3.0 license.
