@@ -30,7 +30,6 @@ type RedisClient struct {
 	singlePush           *redis.Script        // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
 	db                   int                  // db: is the Redis database number, used for logging purposes.
 	DoNotLogQueries      bool                 // DoNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
-	lastQuery            string               // LastQuery: is the last executed Redis query, used for debugging and logging purposes.
 }
 
 var (
@@ -820,15 +819,16 @@ func (dst *RedisClient) XAck(ctx context.Context, stream, group string, ids ...s
 }
 
 func (dst *RedisClient) logQuery(args ...any) {
+	var str string
 	if len(args) > 1 {
-		dst.lastQuery = fmt.Sprintf(args[1].(string), args[2:]...)
+		str = fmt.Sprintf(args[1].(string), args[2:]...)
 	} else {
-		dst.lastQuery = fmt.Sprint(args[1:]...)
+		str = fmt.Sprint(args[1:]...)
 	}
 	if dst.DoNotLogQueries {
 		return
 	}
-	dst.Debug(args[0].(context.Context), dst.lastQuery)
+	dst.Debug(args[0].(context.Context), str)
 }
 
 // Client returns the underlying Redis client instance.
@@ -849,14 +849,4 @@ func (dst *RedisClient) Client() *redis.Client {
 //   - A pointer to the redis.ClusterClient instance.
 func (dst *RedisClient) Cluster() *redis.ClusterClient {
 	return dst.cluster
-}
-
-// LastQuery returns the last executed Redis query as a string.
-// This function is useful for debugging purposes, allowing you to see the last query executed by the RedisClient.
-//
-// Returns:
-//   - A string containing the last executed query.
-func (dst *RedisClient) LastQuery() string {
-	// Returns the last executed query as a string.
-	return dst.lastQuery
 }

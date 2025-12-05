@@ -1,12 +1,15 @@
 package redis
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
+	"github.com/google/uuid"
 	"github.com/ra-company/env"
+	"github.com/ra-company/logging"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -60,19 +63,26 @@ func tests(t *testing.T, hosts, password string, db int) {
 		require.Equal(t, value, got, "Get()")
 	})
 
-	t.Run("2 Set()", func(t *testing.T) {
-		var got string
-		err := Redis.Set(ctx, key, value, 10)
-		require.NoError(t, err, "Set()")
-		if Redis.client == nil {
-			defer Redis.cluster.Del(ctx, key)
-			got, err = Redis.cluster.Get(ctx, key).Result()
-		} else {
-			defer Redis.client.Del(ctx, key)
-			got, err = Redis.client.Get(ctx, key).Result()
+	t.Run("2 Set() parallel", func(t *testing.T) {
+		for i := range 10 {
+			t.Run(fmt.Sprintf("Set parallel %d", i), func(t *testing.T) {
+				t.Parallel()
+				key := faker.Word()
+				new_ctx := context.WithValue(ctx, logging.CtxKeyUUID, uuid.New().String())
+				var got string
+				err := Redis.Set(new_ctx, key, value, 10)
+				require.NoError(t, err, "Set()")
+				if Redis.client == nil {
+					defer Redis.cluster.Del(new_ctx, key)
+					got, err = Redis.cluster.Get(new_ctx, key).Result()
+				} else {
+					defer Redis.client.Del(new_ctx, key)
+					got, err = Redis.client.Get(new_ctx, key).Result()
+				}
+				require.NoError(t, err, "redis.Get()")
+				require.Equal(t, value, got, "redis.Get()")
+			})
 		}
-		require.NoError(t, err, "redis.Get()")
-		require.Equal(t, value, got, "redis.Get()")
 	})
 
 	t.Run("3 Set with timer", func(t *testing.T) {
@@ -150,6 +160,12 @@ func tests(t *testing.T, hosts, password string, db int) {
 	t.Run("6 SinglePush()", func(t *testing.T) {
 		key := faker.Word()
 		value := faker.Word()
+
+		if Redis.client == nil {
+			Redis.cluster.Del(ctx, key).Result()
+		} else {
+			Redis.client.Del(ctx, key).Result()
+		}
 
 		err := Redis.SinglePush(ctx, key, value)
 		require.NoError(t, err, "SinglePush()")
