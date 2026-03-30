@@ -360,6 +360,29 @@ func (dst *FieldValue) AddStringSlice(is []string, field string) {
 	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::VARCHAR[]", database.ArrayToString(is)))
 }
 
+// UUIDSlice compares two slices of UUID values and adds the new slice to the Fields and Values slices if they differ.
+//
+// Parameters:
+//   - was: the original slice of UUID values.
+//   - is: the new slice of UUID values.
+//   - field: the name of the field being compared, which will be added to the Fields slice.
+func (dst *FieldValue) UUIDSlice(was, is []uuid.UUID, field string) {
+	if !slices.Equal(was, is) {
+		dst.AddUUIDSlice(is, field)
+	}
+}
+
+// AddUUIDSlice adds a new slice of UUID values to the Fields and Values slices.
+// It formats the slice as a PostgreSQL array string and appends it to the Values slice.
+//
+// Parameters:
+//   - is: the new slice of UUID values to be added.
+//   - field: the name of the field being added, which will be appended to the Fields slice.
+func (dst *FieldValue) AddUUIDSlice(is []uuid.UUID, field string) {
+	dst.Fields = append(dst.Fields, field)
+	dst.Values = append(dst.Values, fmt.Sprintf("ARRAY%s::UUID[]", database.ArrayToString(is)))
+}
+
 // UpdateQuery generates a PostgreSQL update query string using the collected fields and values.
 // It returns the query string and the current time as the update timestamp.
 // If no fields are set, it returns an empty string and the zero time value.
