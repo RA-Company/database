@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -42,6 +44,10 @@ func ArrayToString(v any) string {
 		return StringsToString(v.([]string))
 	}
 
+	if str == "[]uuid.UUID" {
+		return UUIDsToString(v.([]uuid.UUID))
+	}
+
 	val, _ := json.Marshal(v)
 	if string(val) == "null" {
 		return "[]"
@@ -71,6 +77,29 @@ func StringsToString(arr []string) string {
 		arr[i] = ToStr(v)
 	}
 	return "['" + strings.Join(arr, "','") + "']"
+}
+
+// UUIDsToString converts a slice of uuid.UUID to a PostgreSQL array string representation.
+// It formats the slice into a string that can be used in SQL queries as an array.
+// The resulting string is enclosed in square brackets and each element is enclosed in single quotes.
+// If the input slice is empty, it returns "[]".
+// Each uuid.UUID element in the slice is converted to its string representation using the String() method.
+// This is useful for constructing SQL queries that require array parameters of UUIDs.
+//
+// Parameters:
+//   - arr: A slice of uuid.UUID to be converted to a PostgreSQL array string representation.
+//
+// Returns:
+//   - A string representing the PostgreSQL array format of the input slice of UUIDs.
+func UUIDsToString(arr []uuid.UUID) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+	strArr := make([]string, len(arr))
+	for i, v := range arr {
+		strArr[i] = v.String()
+	}
+	return "['" + strings.Join(strArr, "','") + "']"
 }
 
 // ToStr escapes single quotes in a string for use in SQL queries.
