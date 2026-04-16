@@ -124,7 +124,7 @@ func (dst *ClickHouseClient) Insert(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	return err
 }
 
@@ -147,7 +147,7 @@ func (dst *ClickHouseClient) Update(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 	return 0, err
 }
 
@@ -172,7 +172,7 @@ func (dst *ClickHouseClient) Count(ctx context.Context, model string, query stri
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
 
-	if dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
 		return 0, err
 	}
 
@@ -198,7 +198,7 @@ func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query strin
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.QueryRow(ctx, query).Scan(dest...)
-	if dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
 		return err
 	}
 
@@ -224,7 +224,7 @@ func (dst *ClickHouseClient) Select(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Select(ctx, data, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 
 	return err
 }
@@ -240,7 +240,7 @@ func (dst *ClickHouseClient) Select(ctx context.Context, model string, query str
 //   - query (string): The SQL query to be executed.
 //   - start (time.Time): The start time of the query execution.
 func (dst *ClickHouseClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
-	dst.Debug(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debug(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 func (dst *ClickHouseClient) logQuery(args ...any) {
@@ -255,8 +255,8 @@ func (dst *ClickHouseClient) logQuery(args ...any) {
 	dst.Debug(args[0].(context.Context), dst.lastQuery)
 }
 
-// LastQuery returns the last executed Redis query as a string.
-// This function is useful for debugging purposes, allowing you to see the last query executed by the RedisClient.
+// LastQuery returns the last executed ClickHouse query as a string.
+// This function is useful for debugging purposes, allowing you to see the last query executed by the ClickHouseClient.
 //
 // Returns:
 //   - A string containing the last executed query.
@@ -275,4 +275,14 @@ func (dst *ClickHouseClient) LastQuery() string {
 func (dst *ClickHouseClient) Client() *driver.Conn {
 	// Returns the underlying ClickHouse client instance.
 	return &dst.client
+}
+
+// ActiveConnections returns the number of active connections to the ClickHouse database.
+// This function is useful for monitoring the connection pool and understanding how many queries are currently being processed.
+// It returns an int64 representing the number of active connections, which is tracked using an atomic counter.
+//
+// Returns:
+//   - int64: The number of active connections to the ClickHouse database.
+func (dst *ClickHouseClient) ActiveConnections() int64 {
+	return dst.inFlight.Load()
 }
