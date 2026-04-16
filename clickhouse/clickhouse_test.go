@@ -18,5 +18,4 @@ func Test(t *testing.T) {
 	require.NotEmpty(t, user, "CH_USER environment variable must be set for ClickHouse tests")
 
 	CH.Start(ctx, host, user, password, db)
-
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ra-company/database"
@@ -22,8 +23,9 @@ var (
 type ClickHouseClient struct {
 	logging.CustomLogger
 	client          driver.Conn
-	DoNotLogQueries bool   // If true, queries will not be logged
-	lastQuery       string // Last executed query
+	DoNotLogQueries bool         // If true, queries will not be logged
+	lastQuery       string       // Last executed query
+	inFlight        atomic.Int64 // Number of in-flight queries
 }
 
 // Start initializes the ClickHouse client with the provided configuration.
@@ -66,8 +68,8 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 			Method: clickhouse.CompressionLZ4,
 		},
 		DialTimeout:          time.Second * 30,
-		MaxOpenConns:         5,
-		MaxIdleConns:         5,
+		MaxOpenConns:         50,
+		MaxIdleConns:         25,
 		ConnMaxLifetime:      time.Duration(10) * time.Minute,
 		ConnOpenStrategy:     clickhouse.ConnOpenInOrder,
 		BlockBufferSize:      10,
@@ -118,9 +120,11 @@ func (dst *ClickHouseClient) Stop(ctx context.Context) {
 //   - error: An error if the execution fails, or nil if it succeeds.
 func (dst *ClickHouseClient) Insert(ctx context.Context, model string, query string) error {
 	start := time.Now()
+	dst.inFlight.Add(1)
+	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
 	return err
 }
 
@@ -139,9 +143,11 @@ func (dst *ClickHouseClient) Insert(ctx context.Context, model string, query str
 //   - error: An error if the execution fails, or nil if it succeeds.
 func (dst *ClickHouseClient) Update(ctx context.Context, model string, query string) (uint, error) {
 	start := time.Now()
+	dst.inFlight.Add(1)
+	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
 	return 0, err
 }
 
@@ -160,11 +166,13 @@ func (dst *ClickHouseClient) Update(ctx context.Context, model string, query str
 //   - error: An error if the execution fails, or nil if it succeeds.
 func (dst *ClickHouseClient) Count(ctx context.Context, model string, query string) (uint64, error) {
 	start := time.Now()
+	dst.inFlight.Add(1)
+	defer dst.inFlight.Add(-1)
 
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
 
-	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+	if dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
 		return 0, err
 	}
 
@@ -186,9 +194,11 @@ func (dst *ClickHouseClient) Count(ctx context.Context, model string, query stri
 //   - error: An error if the execution fails, or nil if it succeeds.
 func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query string, dest ...any) error {
 	start := time.Now()
+	dst.inFlight.Add(1)
+	defer dst.inFlight.Add(-1)
 
 	err := dst.client.QueryRow(ctx, query).Scan(dest...)
-	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+	if dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
 		return err
 	}
 
@@ -210,9 +220,11 @@ func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query strin
 //   - error: An error if the execution fails, or nil if it succeeds.
 func (dst *ClickHouseClient) Select(ctx context.Context, model string, query string, data any) error {
 	start := time.Now()
+	dst.inFlight.Add(1)
+	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Select(ctx, data, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.logQuery(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
 
 	return err
 }
@@ -228,7 +240,7 @@ func (dst *ClickHouseClient) Select(ctx context.Context, model string, query str
 //   - query (string): The SQL query to be executed.
 //   - start (time.Time): The start time of the query execution.
 func (dst *ClickHouseClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
-	dst.Debug(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debug(ctx, "\033[1m\033[36mCH [%d] %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", dst.inFlight.Load(), model, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 func (dst *ClickHouseClient) logQuery(args ...any) {
