@@ -33,8 +33,6 @@ type RedisClient struct {
 }
 
 var (
-	Redis RedisClient // Redis: is the global Redis client used to interact with the Redis server.
-
 	ErrorListIsNotEmpty     = errors.New("list is not empty")
 	ErrorGroupAlreadyExists = errors.New("group already exists")
 )
@@ -82,12 +80,12 @@ func (dst *RedisClient) startSingle(ctx context.Context, host string, password s
 	})
 	res := dst.client.Ping(ctx)
 	if res.Err() != nil {
-		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
+		dst.Fatal(ctx, fmt.Sprintf("Failed to connect to Redis database: %v", res.Err()))
 	}
 
 	info, err := dst.client.Info(ctx, "server").Result()
 	if err != nil {
-		log.Fatalf("Failed to get redis info: %v", err)
+		dst.Fatal(ctx, fmt.Sprintf("Failed to get redis info: %v", err))
 	}
 
 	dst.Info(ctx, "Connected to Redis database: redis://%v/%v", host, dst.db)

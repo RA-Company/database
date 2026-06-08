@@ -16,10 +16,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-var (
-	CH ClickHouseClient
-)
-
 type ClickHouseClient struct {
 	logging.CustomLogger
 	client          driver.Conn
@@ -40,9 +36,17 @@ type ClickHouseClient struct {
 //   - username (string): The username for authentication.
 //   - password (string): The password for authentication.
 //   - db (string): The name of the database to connect to.
-func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, password, db string) {
+//   - settings (clickhouse.Settings): Additional settings for the ClickHouse connection.
+func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, password, db string, settings clickhouse.Settings) {
 	var err error
 	dialCount := 0
+	if settings == nil {
+		settings = clickhouse.Settings{
+			"max_execution_time":    60,
+			"insert_quorum":         2,
+			"insert_quorum_timeout": 60000,
+		}
+	}
 	dst.client, err = clickhouse.Open(&clickhouse.Options{
 		Addr: strings.Split(hosts, ","),
 		Auth: clickhouse.Auth{
@@ -59,11 +63,7 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 		Debugf: func(format string, v ...any) {
 			fmt.Printf(format, v)
 		},
-		Settings: clickhouse.Settings{
-			"max_execution_time":    60,
-			"insert_quorum":         2,
-			"insert_quorum_timeout": 60000,
-		},
+		Settings: settings,
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
 		},
@@ -171,8 +171,8 @@ func (dst *ClickHouseClient) Count(ctx context.Context, model string, query stri
 
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
-
-	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	if err != nil {
 		return 0, err
 	}
 
@@ -272,9 +272,9 @@ func (dst *ClickHouseClient) LastQuery() string {
 //
 // Returns:
 //   - *driver.Conn: A pointer to the ClickHouse client connection.
-func (dst *ClickHouseClient) Client() *driver.Conn {
+func (dst *ClickHouseClient) Client() driver.Conn {
 	// Returns the underlying ClickHouse client instance.
-	return &dst.client
+	return dst.client
 }
 
 // ActiveConnections returns the number of active connections to the ClickHouse database.

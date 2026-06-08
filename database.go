@@ -2,7 +2,7 @@ package database
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"reflect"
 	"regexp"
 	"strings"
@@ -11,11 +11,13 @@ import (
 )
 
 var (
-	ErrorIncorrectParameters = fmt.Errorf("incorrect parameters")
-	ErrorIncorrectRequest    = fmt.Errorf("incorrect request")
-	ErrorDatabaseError       = fmt.Errorf("database error")
-	ErrorNotFound            = fmt.Errorf("not found")
-	ErrorIncorrectID         = fmt.Errorf("incorrect ID")
+	ErrorIncorrectParameters = errors.New("incorrect parameters")
+	ErrorIncorrectRequest    = errors.New("incorrect request")
+	ErrorDatabaseError       = errors.New("database error")
+	ErrorNotFound            = errors.New("not found")
+	ErrorIncorrectID         = errors.New("incorrect ID")
+
+	spaceRe = regexp.MustCompile(`\s+`)
 )
 
 // ArrayToString converts a slice of any slice type to a Database array string representation.
@@ -73,10 +75,11 @@ func StringsToString(arr []string) string {
 	if len(arr) == 0 {
 		return "[]"
 	}
+	a := make([]string, len(arr))
 	for i, v := range arr {
-		arr[i] = ToStr(v)
+		a[i] = ToStr(v)
 	}
-	return "['" + strings.Join(arr, "','") + "']"
+	return "['" + strings.Join(a, "','") + "']"
 }
 
 // UUIDsToString converts a slice of uuid.UUID to a PostgreSQL array string representation.
@@ -116,7 +119,6 @@ func ToStr(str string) string {
 }
 
 func OneLine(str string) string {
-	var spaceRe = regexp.MustCompile(`\s+`)
 	str = spaceRe.ReplaceAllString(str, " ")
 	return strings.TrimSpace(str)
 }

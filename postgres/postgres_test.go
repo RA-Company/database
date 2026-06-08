@@ -12,6 +12,7 @@ import (
 
 func Test(t *testing.T) {
 	ctx := t.Context()
+	PG := PostgresClient{}
 	password := env.GetEnvStr("PG_PWD", "")
 	db := env.GetEnvStr("PG_DB", "")
 	require.NotEmpty(t, db, "PG_DB environment variable must be set for Postgress tests")
