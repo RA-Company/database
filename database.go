@@ -16,6 +16,7 @@ var (
 	ErrorDatabaseError       = errors.New("database error")
 	ErrorNotFound            = errors.New("not found")
 	ErrorIncorrectID         = errors.New("incorrect ID")
+	ErrorInvalidResult       = errors.New("invalid result")
 
 	spaceRe = regexp.MustCompile(`\s+`)
 )
@@ -35,26 +36,26 @@ func ArrayToString(v any) string {
 	if v == nil {
 		return "[]"
 	}
-
-	str := reflect.TypeOf(v).String()
-
-	if !strings.Contains(str, "[]") {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return "[]"
+	}
+	if rv.IsNil() || rv.Len() == 0 {
 		return "[]"
 	}
 
-	if str == "[]string" {
-		return StringsToString(v.([]string))
+	switch s := v.(type) {
+	case []string:
+		return StringsToString(s)
+	case []uuid.UUID:
+		return UUIDsToString(s)
+	default:
+		val, err := json.Marshal(v)
+		if err != nil || string(val) == "null" {
+			return "[]"
+		}
+		return string(val)
 	}
-
-	if str == "[]uuid.UUID" {
-		return UUIDsToString(v.([]uuid.UUID))
-	}
-
-	val, _ := json.Marshal(v)
-	if string(val) == "null" {
-		return "[]"
-	}
-	return string(val)
 }
 
 // StringsToString converts a slice of strings to a PostgreSQL array string representation.

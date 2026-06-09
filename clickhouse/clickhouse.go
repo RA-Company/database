@@ -2,9 +2,9 @@ package clickhouse
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -15,6 +15,15 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
+
+type Config struct {
+	Hosts    string
+	User     string
+	Password string
+	DB       string
+	Settings clickhouse.Settings
+	TLS      *tls.Config
+}
 
 type ClickHouseClient struct {
 	logging.CustomLogger
@@ -32,30 +41,25 @@ type ClickHouseClient struct {
 //
 // Parameters:
 //   - ctx (context.Context): The context for the connection.
-//   - hosts (string): The host addresses of the ClickHouse server.
-//   - username (string): The username for authentication.
-//   - password (string): The password for authentication.
-//   - db (string): The name of the database to connect to.
-//   - settings (clickhouse.Settings): Additional settings for the ClickHouse connection.
-func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, password, db string, settings clickhouse.Settings) {
+//   - config (*Config): A Config struct containing the necessary information to connect to the ClickHouse database, including Hosts, User, Password, DB, Settings, and optional TLS configuration.
+//   - tls (*tls.Config): The TLS configuration for secure connections.
+func (dst *ClickHouseClient) Start(ctx context.Context, config *Config) {
 	var err error
-	dialCount := 0
-	if settings == nil {
-		settings = clickhouse.Settings{
+	if config.Settings == nil {
+		config.Settings = clickhouse.Settings{
 			"max_execution_time":    60,
 			"insert_quorum":         2,
 			"insert_quorum_timeout": 60000,
 		}
 	}
 	dst.client, err = clickhouse.Open(&clickhouse.Options{
-		Addr: strings.Split(hosts, ","),
+		Addr: strings.Split(config.Hosts, ","),
 		Auth: clickhouse.Auth{
-			Database: db,
-			Username: username,
-			Password: password,
+			Database: config.DB,
+			Username: config.User,
+			Password: config.Password,
 		},
 		DialContext: func(ctx context.Context, addr string) (net.Conn, error) {
-			dialCount++
 			var d net.Dialer
 			return d.DialContext(ctx, "tcp", addr)
 		},
@@ -63,7 +67,7 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 		Debugf: func(format string, v ...any) {
 			fmt.Printf(format, v)
 		},
-		Settings: settings,
+		Settings: config.Settings,
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
 		},
@@ -74,21 +78,20 @@ func (dst *ClickHouseClient) Start(ctx context.Context, hosts, username, passwor
 		ConnOpenStrategy:     clickhouse.ConnOpenInOrder,
 		BlockBufferSize:      10,
 		MaxCompressionBuffer: 10240,
+		TLS:                  config.TLS,
 	})
 
 	if err != nil {
 		dst.Fatal(ctx, "ClickHouse connection error: %v", err)
-		os.Exit(1)
 	}
 
 	v, err := dst.client.ServerVersion()
 
 	if err != nil {
 		dst.Fatal(ctx, "ClickHouse connection error: %v", err)
-		os.Exit(1)
 	}
 
-	dst.Info(ctx, "Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", hosts, db, username)
+	dst.Info(ctx, "Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
 	dst.Info(ctx, "ClickHouse Server Version: %v", v)
 }
 
@@ -198,9 +201,7 @@ func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query strin
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.QueryRow(ctx, query).Scan(dest...)
-	if dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query)); err != nil {
-		return err
-	}
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
 
 	return err
 }
@@ -277,12 +278,12 @@ func (dst *ClickHouseClient) Client() driver.Conn {
 	return dst.client
 }
 
-// ActiveConnections returns the number of active connections to the ClickHouse database.
-// This function is useful for monitoring the connection pool and understanding how many queries are currently being processed.
-// It returns an int64 representing the number of active connections, which is tracked using an atomic counter.
+// InFlightQueries returns the number of queries currently being processed by the ClickHouse client.
+// This function is useful for monitoring the query load and understanding how many queries are in progress.
+// It returns an int64 representing the number of in-flight queries, which is tracked using an atomic counter.
 //
 // Returns:
-//   - int64: The number of active connections to the ClickHouse database.
-func (dst *ClickHouseClient) ActiveConnections() int64 {
+//   - int64: The number of in-flight queries to the ClickHouse database.
+func (dst *ClickHouseClient) InFlightQueries() int64 {
 	return dst.inFlight.Load()
 }

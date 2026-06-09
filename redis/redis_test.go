@@ -16,22 +16,25 @@ import (
 
 func Test(t *testing.T) {
 	redis := RedisClient{}
-	password := env.GetEnvStr("REDIS_PASSWORD", "")
-	db := env.GetEnvInt("REDIS_DB", 0)
+	config := Config{
+		Hosts:    env.GetEnvStr("REDIS_HOST", ""),
+		Password: env.GetEnvStr("REDIS_PASSWORD", ""),
+		DB:       env.GetEnvInt("REDIS_DB", 0),
+	}
+	require.NotEmpty(t, config.Hosts, "REDIS_HOST environment variable must be set for Redis tests")
 
 	t.Run("1 Single Redis tests", func(t *testing.T) {
-		hosts := env.GetEnvStr("REDIS_HOST", "")
-		require.NotEmpty(t, hosts, "REDIS_HOST environment variable must be set for Redis tests")
-		tests(t, &redis, hosts, password, db)
+		require.NotEmpty(t, config.Hosts, "REDIS_HOST environment variable must be set for Redis tests")
+		tests(t, &redis, &config)
 	})
 	t.Run("2 Redis Cluster tests", func(t *testing.T) {
-		hosts := env.GetEnvStr("REDIS_CLUSTER", "")
-		require.NotEmpty(t, hosts, "REDIS_CLUSTER environment variable must be set for Redis cluster tests")
-		tests(t, &redis, hosts, password, db)
+		config.Hosts = env.GetEnvStr("REDIS_CLUSTER", "")
+		require.NotEmpty(t, config.Hosts, "REDIS_CLUSTER environment variable must be set for Redis cluster tests")
+		tests(t, &redis, &config)
 	})
 }
 
-func tests(t *testing.T, r *RedisClient, hosts, password string, db int) {
+func tests(t *testing.T, r *RedisClient, config *Config) {
 	ctx := t.Context()
 	faker := gofakeit.New(0)
 
@@ -39,7 +42,7 @@ func tests(t *testing.T, r *RedisClient, hosts, password string, db int) {
 	value := faker.LetterN(30)
 	defaultValue := faker.LetterN(30)
 
-	r.Start(ctx, hosts, password, db)
+	r.Start(ctx, config)
 
 	t.Run("1 Get()", func(t *testing.T) {
 		if r.client == nil {
@@ -188,7 +191,7 @@ func tests(t *testing.T, r *RedisClient, hosts, password string, db int) {
 			{Key: fmt.Sprintf("{test}:%s", faker.Word()), Value: []byte(faker.Word()), TTL: 10},
 		}
 
-		err := r.MultiSet(ctx, &sets)
+		err := r.MultiSet(ctx, sets)
 		require.NoError(t, err, "MultiSet()")
 
 		for _, set := range sets {

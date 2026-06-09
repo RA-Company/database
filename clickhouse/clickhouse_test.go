@@ -9,15 +9,18 @@ import (
 
 func Test(t *testing.T) {
 	ctx := t.Context()
-	password := env.GetEnvStr("CH_PWD", "")
-	db := env.GetEnvStr("CH_DB", "")
-	require.NotEmpty(t, db, "CH_DB environment variable must be set for ClickHouse tests")
-	host := env.GetEnvStr("CH_HOSTS", "")
-	require.NotEmpty(t, host, "CH_HOSTS environment variable must be set for ClickHouse tests")
-	user := env.GetEnvStr("CH_USER", "")
-	require.NotEmpty(t, user, "CH_USER environment variable must be set for ClickHouse tests")
+
+	config := Config{
+		Hosts:    env.GetEnvStr("CH_HOSTS", ""),
+		User:     env.GetEnvStr("CH_USER", ""),
+		Password: env.GetEnvStr("CH_PWD", ""),
+		DB:       env.GetEnvStr("CH_DB", ""),
+	}
+	require.NotEmpty(t, config.Hosts, "CH_HOSTS environment variable must be set for ClickHouse tests")
+	require.NotEmpty(t, config.User, "CH_USER environment variable must be set for ClickHouse tests")
+	require.NotEmpty(t, config.DB, "CH_DB environment variable must be set for ClickHouse tests")
 
 	CH := ClickHouseClient{}
 
-	CH.Start(ctx, host, user, password, db, nil)
+	CH.Start(ctx, &config)
 }

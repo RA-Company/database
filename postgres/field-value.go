@@ -16,8 +16,16 @@ import (
 // It also tracks the last update time.
 // The structure is designed to be used in a context where changes to fields need to be recorded
 type FieldValue struct {
-	Fields []string
-	Values []string
+	Fields       []string
+	Values       []string
+	UpdateColumn string
+}
+
+func (dst *FieldValue) updateColumn() string {
+	if dst.UpdateColumn == "" {
+		return "updated_at"
+	}
+	return strings.Clone(dst.UpdateColumn)
 }
 
 // String compares two string values and adds the new value to the Fields and Values slices if they differ.
@@ -424,7 +432,7 @@ func (dst *FieldValue) UpdateQuery(table string, id any) (string, time.Time) {
 	case uuid.UUID:
 		return dst.CustomUpdateQuery(table, fmt.Sprintf("id = '%s'", v))
 	default:
-		return dst.CustomUpdateQuery(table, fmt.Sprintf("id = '%v'", v))
+		return dst.CustomUpdateQuery(table, "id = -1")
 	}
 }
 
@@ -445,7 +453,7 @@ func (dst *FieldValue) CustomUpdateQuery(table, where string) (string, time.Time
 	}
 
 	update := time.Now().UTC()
-	fields := fmt.Sprintf("%s,updated_at", strings.Join(dst.Fields, ","))
+	fields := fmt.Sprintf("%s,%s", strings.Join(dst.Fields, ","), dst.updateColumn())
 	values := fmt.Sprintf("%s,'%s'", strings.Join(dst.Values, ","), update.Format(time.RFC3339Nano))
 
 	return fmt.Sprintf("UPDATE %s SET (%s) = (%s) WHERE %s", table, fields, values, where), update

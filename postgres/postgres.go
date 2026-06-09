@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"strings"
@@ -17,9 +18,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type Config struct {
+	Host     string
+	Username string
+	Password string
+	DB       string
+	TLS      *tls.Config
+}
+
 type PostgresClient struct {
 	logging.CustomLogger               // CustomLogger: is an embedded field that allows the PostgresClient to use custom logging functionality.
 	client               *pgxpool.Pool // client: is a pointer to the PostgreSQL connection pool.
+	DoNotLogQueries      bool          // DoNotLogQueries: is a boolean flag that indicates whether SQL queries should be logged or not. If set to true, queries will not be logged.
 }
 
 // Start initializes the PostgreSQL connection pool with the provided credentials and database information.
@@ -32,40 +42,46 @@ type PostgresClient struct {
 //
 // Parameters:
 //   - ctx: The context for the operation, used for cancellation and timeout.
-//   - host: The host (with port) where the PostgreSQL database is running.
-//   - username: The username for the PostgreSQL database.
-//   - password: The password for the PostgreSQL database.
-//   - db: The name of the PostgreSQL database to connect to.
-func (dst *PostgresClient) Start(ctx context.Context, host, username, password string, db string) {
+//   - config: A Config struct containing the necessary information to connect to the PostgreSQL database, including Host, Username, Password, DB, and optional TLS configuration.
+func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 	var err error
 	var connectionString string
 
-	if strings.Contains(host, ",") {
-		connectionString = fmt.Sprintf("postgres://%s@%s/%s?target_session_attrs=read-write", url.UserPassword(username, password), host, db)
+	if strings.Contains(config.Host, ",") {
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s?target_session_attrs=read-write", url.UserPassword(config.Username, config.Password), config.Host, config.DB)
 	} else {
-		connectionString = fmt.Sprintf("postgres://%s@%s/%s", url.UserPassword(username, password), host, db)
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s", url.UserPassword(config.Username, config.Password), config.Host, config.DB)
 	}
 
-	dst.client, err = pgxpool.New(ctx, connectionString)
+	cfg, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
-		dst.Fatal(ctx, fmt.Sprintf("PostgreSQL connection error: %v", err))
+		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
+	}
+
+	if config.TLS != nil {
+		cfg.ConnConfig.TLSConfig = config.TLS
+	}
+
+	dst.client, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
 	err = dst.client.Ping(ctx)
 	if err != nil {
-		dst.Fatal(ctx, fmt.Sprintf("PostgreSQL connection error: %v", err))
+		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
 	}
 
-	if strings.Contains(host, ",") {
-		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", host, db, username)
+	if strings.Contains(config.Host, ",") {
+		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", config.Host, config.DB, config.Username)
 	} else {
-		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", host, db, username)
+		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", config.Host, config.DB, config.Username)
 	}
 
 	var fullVersion string
 	err = dst.client.QueryRow(ctx, "SELECT version()").Scan(&fullVersion)
 	if err != nil {
-		dst.Fatal(ctx, fmt.Sprintf("Query failed: %v", err))
+		dst.Fatal(ctx, "Query failed: %v", err)
 	}
 	dst.Info(ctx, "PostgreSQL version %s", fullVersion)
 }
@@ -397,7 +413,9 @@ func (dst *PostgresClient) Client() *pgxpool.Pool {
 func (dst *PostgresClient) BeginTransaction(ctx context.Context) (pgx.Tx, error) {
 	start := time.Now()
 	tx, err := dst.client.Begin(ctx)
-	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	if !dst.DoNotLogQueries {
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +432,9 @@ func (dst *PostgresClient) BeginTransaction(ctx context.Context) (pgx.Tx, error)
 func (dst *PostgresClient) RollbackTransaction(ctx context.Context, tx pgx.Tx) {
 	start := time.Now()
 	err := tx.Rollback(ctx)
-	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+	if !dst.DoNotLogQueries {
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+	}
 	if err != nil {
 		dst.Error(ctx, err)
 	}
@@ -434,7 +454,9 @@ func (dst *PostgresClient) CommitTransaction(ctx context.Context, tx pgx.Tx) err
 	start := time.Now()
 
 	err := tx.Commit(ctx)
-	dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	if !dst.DoNotLogQueries {
+		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+	}
 	if err != nil {
 		dst.Error(ctx, err)
 	}
@@ -451,6 +473,9 @@ func (dst *PostgresClient) CommitTransaction(ctx context.Context, tx pgx.Tx) err
 //   - action: The action being performed, used for logging.
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogDefault(ctx context.Context, model, action, query string, start time.Time) {
+	if dst.DoNotLogQueries {
+		return
+	}
 	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[34m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
@@ -464,6 +489,9 @@ func (dst *PostgresClient) LogDefault(ctx context.Context, model, action, query 
 //   - action: The action being performed, used for logging.
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogDanger(ctx context.Context, model, action, query string, start time.Time) {
+	if dst.DoNotLogQueries {
+		return
+	}
 	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[31m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
@@ -477,6 +505,9 @@ func (dst *PostgresClient) LogDanger(ctx context.Context, model, action, query s
 //   - action: The action being performed, used for logging.
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogWarning(ctx context.Context, model, action, query string, start time.Time) {
+	if dst.DoNotLogQueries {
+		return
+	}
 	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[33m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
@@ -490,5 +521,8 @@ func (dst *PostgresClient) LogWarning(ctx context.Context, model, action, query 
 //   - action: The action being performed, used for logging.
 //   - query: The SQL query string to be logged.
 func (dst *PostgresClient) LogInfo(ctx context.Context, model, action, query string, start time.Time) {
+	if dst.DoNotLogQueries {
+		return
+	}
 	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[32m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
