@@ -72,16 +72,16 @@ func tests(t *testing.T, r *RedisClient, config *Config) {
 			t.Run(fmt.Sprintf("Set parallel %d", i), func(t *testing.T) {
 				t.Parallel()
 				key := faker.Word()
-				new_ctx := context.WithValue(ctx, logging.CtxKeyUUID, uuid.New().String())
+				newCtx := context.WithValue(ctx, logging.CtxKeyUUID, uuid.New().String())
 				var got string
-				err := r.Set(new_ctx, key, value, 10)
+				err := r.Set(newCtx, key, value, 10)
 				require.NoError(t, err, "Set()")
 				if r.client == nil {
-					defer r.cluster.Del(new_ctx, key)
-					got, err = r.cluster.Get(new_ctx, key).Result()
+					defer r.cluster.Del(newCtx, key)
+					got, err = r.cluster.Get(newCtx, key).Result()
 				} else {
-					defer r.client.Del(new_ctx, key)
-					got, err = r.client.Get(new_ctx, key).Result()
+					defer r.client.Del(newCtx, key)
+					got, err = r.client.Get(newCtx, key).Result()
 				}
 				require.NoError(t, err, "redis.Get()")
 				require.Equal(t, value, got, "redis.Get()")

@@ -215,7 +215,7 @@ func (dst *FieldValue) AddTime(is time.Time, field string) {
 //   - is: the new time.Time value.
 //   - field: the name of the field being compared, which will be added to the Fields slice.
 func (dst *FieldValue) Date(was, is time.Time, field string) {
-	if was.UTC().Format("2006-01-02") != is.UTC().Format("2006-01-02") {
+	if was.UTC().Format(time.DateOnly) != is.UTC().Format(time.DateOnly) {
 		dst.AddDate(is, field)
 	}
 }
@@ -228,7 +228,7 @@ func (dst *FieldValue) Date(was, is time.Time, field string) {
 //   - field: the name of the field being added, which will be appended to the Fields slice.
 func (dst *FieldValue) AddDate(is time.Time, field string) {
 	dst.Fields = append(dst.Fields, field)
-	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.UTC().Format("2006-01-02")))
+	dst.Values = append(dst.Values, fmt.Sprintf("'%s'", is.UTC().Format(time.DateOnly)))
 }
 
 // UUID compares two UUID values and adds the new value to the Fields and Values slices if they differ.

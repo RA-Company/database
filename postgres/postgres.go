@@ -55,7 +55,7 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 
 	cfg, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
-		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
+		dst.startError(ctx, err)
 	}
 
 	if config.TLS != nil {
@@ -64,12 +64,12 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 
 	dst.client, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
+		dst.startError(ctx, err)
 	}
 
 	err = dst.client.Ping(ctx)
 	if err != nil {
-		dst.Fatal(ctx, "PostgreSQL connection error: %v", err)
+		dst.startError(ctx, err)
 	}
 
 	if strings.Contains(config.Host, ",") {
@@ -84,6 +84,10 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 		dst.Fatal(ctx, "Query failed: %v", err)
 	}
 	dst.Info(ctx, "PostgreSQL version %s", fullVersion)
+}
+
+func (dst *PostgresClient) startError(ctx context.Context, err error) {
+	dst.Fatal(ctx, "PostgreSQL start error: %v", err)
 }
 
 // Stop closes the PostgreSQL connection pool and logs a message indicating that the disconnection was successful.

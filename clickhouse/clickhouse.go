@@ -127,7 +127,7 @@ func (dst *ClickHouseClient) Insert(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Create (%.2f ms)\033[1m \033[32m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.LogInfo(ctx, model, "Create", query, start)
 	return err
 }
 
@@ -150,7 +150,7 @@ func (dst *ClickHouseClient) Update(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Exec(ctx, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Update (%.2f ms)\033[1m \033[33m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.LogWarning(ctx, model, "Update", query, start)
 	return 0, err
 }
 
@@ -174,7 +174,7 @@ func (dst *ClickHouseClient) Count(ctx context.Context, model string, query stri
 
 	var n uint64
 	err := dst.client.QueryRow(ctx, query).Scan(&n)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Count (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.LogDefault(ctx, model, "Count", query, start)
 	if err != nil {
 		return 0, err
 	}
@@ -201,7 +201,7 @@ func (dst *ClickHouseClient) Scan(ctx context.Context, model string, query strin
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.QueryRow(ctx, query).Scan(dest...)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.LogDefault(ctx, model, "Scan", query, start)
 
 	return err
 }
@@ -225,23 +225,51 @@ func (dst *ClickHouseClient) Select(ctx context.Context, model string, query str
 	defer dst.inFlight.Add(-1)
 
 	err := dst.client.Select(ctx, data, query)
-	dst.logQuery(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.LogDefault(ctx, model, "Load", query, start)
 
 	return err
 }
 
-// LogSelect puts a query to the log with a specific format.
-// It takes a context, a model name, a query string, and the start time of the query execution.
-// The function formats the log message to include the model name, execution time, and the query itself.
-// This function is useful for debugging and monitoring purposes, allowing you to see the performance of your queries.
+// Put query string to the log with default colors
+// The function logs the SQL query string along with the time taken for the query execution.
+// It is typically used for debugging purposes to track the performance of SQL queries.
 //
 // Parameters:
 //   - ctx (context.Context): The context for the operation.
 //   - model (string): The name of the model being queried.
+//   - action (string): The action being performed.
 //   - query (string): The SQL query to be executed.
 //   - start (time.Time): The start time of the query execution.
-func (dst *ClickHouseClient) LogSelect(ctx context.Context, model string, query string, start time.Time) {
-	dst.Debug(ctx, "\033[1m\033[36mCH %s Load (%.2f ms)\033[1m \033[34m%s\033[0m", model, float64(time.Since(start))/1000000, database.OneLine(query))
+func (dst *ClickHouseClient) LogDefault(ctx context.Context, model, action, query string, start time.Time) {
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s %s (%.2f ms)\033[1m \033[34m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+}
+
+// Put query string to the log with green color
+// The function logs the SQL query string along with the time taken for the query execution in green color.
+// It is typically used for debugging purposes to highlight successful or non-problematic SQL queries..
+//
+// Parameters:
+//   - ctx (context.Context): The context for the operation.
+//   - model (string): The name of the model being queried.
+//   - action (string): The action being performed, used for logging.
+//   - query (string): The SQL query to be executed.
+//   - start (time.Time): The start time of the query execution.
+func (dst *ClickHouseClient) LogInfo(ctx context.Context, model, action, query string, start time.Time) {
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s %s (%.2f ms)\033[1m \033[32m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+}
+
+// Put query string to the log with yellow color
+// The function logs the SQL query string along with the time taken for the query execution in yellow color.
+// It is typically used for debugging purposes to highlight warnings or non-critical issues in SQL queries.
+//
+// Parameters:
+//   - ctx (context.Context): The context for the operation.
+//   - model (string): The name of the model being queried.
+//   - action (string): The action being performed, used for logging.
+//   - query (string): The SQL query to be executed.
+//   - start (time.Time): The start time of the query execution.
+func (dst *ClickHouseClient) LogWarning(ctx context.Context, model, action, query string, start time.Time) {
+	dst.logQuery(ctx, "\033[1m\033[36mCH %s %s (%.2f ms)\033[1m \033[33m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 func (dst *ClickHouseClient) logQuery(args ...any) {
