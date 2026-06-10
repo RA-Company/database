@@ -14,13 +14,13 @@ func Test(t *testing.T) {
 	ctx := t.Context()
 	PG := PostgresClient{}
 	config := Config{
-		Host:     env.GetEnvStr("PG_HOSTS", ""),
-		Username: env.GetEnvStr("PG_USER", ""),
+		Hosts:    env.GetEnvStr("PG_HOSTS", ""),
+		User:     env.GetEnvStr("PG_USER", ""),
 		Password: env.GetEnvStr("PG_PWD", ""),
 		DB:       env.GetEnvStr("PG_DB", ""),
 	}
-	require.NotEmpty(t, config.Host, "PG_HOSTS environment variable must be set for Postgress tests")
-	require.NotEmpty(t, config.Username, "PG_USER environment variable must be set for Postgress tests")
+	require.NotEmpty(t, config.Hosts, "PG_HOSTS environment variable must be set for Postgress tests")
+	require.NotEmpty(t, config.User, "PG_USER environment variable must be set for Postgress tests")
 	require.NotEmpty(t, config.Password, "PG_PWD environment variable must be set for Postgress tests")
 	require.NotEmpty(t, config.DB, "PG_DB environment variable must be set for Postgress tests")
 

@@ -19,8 +19,8 @@ import (
 )
 
 type Config struct {
-	Host     string
-	Username string
+	Hosts    string
+	User     string
 	Password string
 	DB       string
 	TLS      *tls.Config
@@ -47,10 +47,10 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 	var err error
 	var connectionString string
 
-	if strings.Contains(config.Host, ",") {
-		connectionString = fmt.Sprintf("postgres://%s@%s/%s?target_session_attrs=read-write", url.UserPassword(config.Username, config.Password), config.Host, config.DB)
+	if strings.Contains(config.Hosts, ",") {
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s?target_session_attrs=read-write", url.UserPassword(config.User, config.Password), config.Hosts, config.DB)
 	} else {
-		connectionString = fmt.Sprintf("postgres://%s@%s/%s", url.UserPassword(config.Username, config.Password), config.Host, config.DB)
+		connectionString = fmt.Sprintf("postgres://%s@%s/%s", url.UserPassword(config.User, config.Password), config.Hosts, config.DB)
 	}
 
 	cfg, err := pgxpool.ParseConfig(connectionString)
@@ -72,10 +72,10 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 		dst.startError(ctx, err)
 	}
 
-	if strings.Contains(config.Host, ",") {
-		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", config.Host, config.DB, config.Username)
+	if strings.Contains(config.Hosts, ",") {
+		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
 	} else {
-		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", config.Host, config.DB, config.Username)
+		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
 	}
 
 	var fullVersion string
