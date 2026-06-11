@@ -17,18 +17,19 @@ import (
 )
 
 type Config struct {
-	Hosts    string
-	User     string
-	Password string
-	DB       string
-	Settings clickhouse.Settings
-	TLS      *tls.Config
+	Hosts           string
+	User            string
+	Password        string
+	DB              string
+	Settings        clickhouse.Settings
+	DoNotLogQueries bool
+	TLS             *tls.Config
 }
 
 type ClickHouseClient struct {
 	logging.CustomLogger
 	client          driver.Conn
-	DoNotLogQueries bool         // If true, queries will not be logged
+	doNotLogQueries bool         // If true, queries will not be logged
 	lastQuery       string       // Last executed query
 	inFlight        atomic.Int64 // Number of in-flight queries
 }
@@ -52,6 +53,7 @@ func (dst *ClickHouseClient) Start(ctx context.Context, config *Config) {
 			"insert_quorum_timeout": 60000,
 		}
 	}
+	dst.doNotLogQueries = config.DoNotLogQueries
 	dst.client, err = clickhouse.Open(&clickhouse.Options{
 		Addr: strings.Split(config.Hosts, ","),
 		Auth: clickhouse.Auth{
@@ -278,7 +280,7 @@ func (dst *ClickHouseClient) logQuery(args ...any) {
 	} else {
 		dst.lastQuery = fmt.Sprint(args[1:]...)
 	}
-	if dst.DoNotLogQueries {
+	if dst.doNotLogQueries {
 		return
 	}
 	dst.Debug(args[0].(context.Context), dst.lastQuery)

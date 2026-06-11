@@ -15,10 +15,11 @@ import (
 )
 
 type Config struct {
-	Hosts    string      // Hosts: is a comma-separated list of Redis server hosts (e.g., "host1:port1,host2:port2").
-	Password string      // Password: is the password for authenticating with the Redis server.
-	DB       int         // DB: is the Redis database number to use (only for single Redis instance, not used for clusters).
-	TLS      *tls.Config // TLS: is a pointer to a TLSConfig struct containing TLS configuration for secure connections to Redis servers.
+	Hosts           string      // Hosts: is a comma-separated list of Redis server hosts (e.g., "host1:port1,host2:port2").
+	Password        string      // Password: is the password for authenticating with the Redis server.
+	DB              int         // DB: is the Redis database number to use (only for single Redis instance, not used for clusters).
+	TLS             *tls.Config // TLS: is a pointer to a TLSConfig struct containing TLS configuration for secure connections to Redis servers.
+	DoNotLogQueries bool        // DoNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
 }
 
 // Set represents a Redis set operation with a key, value, and time-to-live (TTL).
@@ -36,7 +37,7 @@ type RedisClient struct {
 	cluster              *redis.ClusterClient // cluster: is a Redis cluster client used for connecting to a Redis cluster.
 	singlePush           *redis.Script        // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
 	db                   int                  // db: is the Redis database number, used for logging purposes.
-	DoNotLogQueries      bool                 // DoNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
+	doNotLogQueries      bool                 // doNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
 }
 
 var (
@@ -67,6 +68,8 @@ func (dst *RedisClient) Start(ctx context.Context, config *Config) {
 		// If the hosts do not contain a comma, it is a single Redis node.
 		dst.startSingle(ctx, config)
 	}
+
+	dst.doNotLogQueries = config.DoNotLogQueries
 
 	dst.singlePush = redis.NewScript(`
         if redis.call("LLEN", KEYS[1]) == 0 then
@@ -674,7 +677,7 @@ func (dst *RedisClient) logQuery(args ...any) {
 	} else {
 		str = fmt.Sprint(args[1:]...)
 	}
-	if dst.DoNotLogQueries {
+	if dst.doNotLogQueries {
 		return
 	}
 	dst.Debug(args[0].(context.Context), str)
