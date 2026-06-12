@@ -116,7 +116,7 @@ func UUIDsToString(arr []uuid.UUID) string {
 // Returns:
 //   - A string with single quotes replaced by two single quotes.
 func ToStr(str string) string {
-	return strings.Replace(str, "'", "''", -1)
+	return strings.ReplaceAll(str, "'", "''")
 }
 
 func OneLine(str string) string {

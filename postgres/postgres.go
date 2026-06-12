@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const startErrorMessage = "PostgreSQL start error: %v"
+
 type Config struct {
 	Hosts           string
 	User            string
@@ -58,7 +60,8 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 
 	cfg, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
-		dst.startError(ctx, err)
+		dst.Fatalf(ctx, startErrorMessage, err)
+		return
 	}
 
 	if config.TLS != nil {
@@ -67,30 +70,28 @@ func (dst *PostgresClient) Start(ctx context.Context, config *Config) {
 
 	dst.client, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		dst.startError(ctx, err)
+		dst.Fatalf(ctx, startErrorMessage, err)
+		return
 	}
 
 	err = dst.client.Ping(ctx)
 	if err != nil {
-		dst.startError(ctx, err)
+		dst.Fatalf(ctx, startErrorMessage, err)
+		return
 	}
 
 	if strings.Contains(config.Hosts, ",") {
-		dst.Info(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
+		dst.Infof(ctx, "Connected to PostgreSQL Database: cluster - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
 	} else {
-		dst.Info(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
+		dst.Infof(ctx, "Connected to PostgreSQL Database: host - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
 	}
 
 	var fullVersion string
 	err = dst.client.QueryRow(ctx, "SELECT version()").Scan(&fullVersion)
 	if err != nil {
-		dst.Fatal(ctx, "Query failed: %v", err)
+		dst.Fatalf(ctx, "Query failed: %v", err)
 	}
-	dst.Info(ctx, "PostgreSQL version %s", fullVersion)
-}
-
-func (dst *PostgresClient) startError(ctx context.Context, err error) {
-	dst.Fatal(ctx, "PostgreSQL start error: %v", err)
+	dst.Infof(ctx, "PostgreSQL version %s", fullVersion)
 }
 
 // Stop closes the PostgreSQL connection pool and logs a message indicating that the disconnection was successful.
@@ -155,7 +156,7 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 	res, err = tx.Query(ctx, query+" RETURNING id")
 	dst.LogWarning(ctx, model, "Create", query, start)
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to execute insert query: %v", err)
 		dst.RollbackTransaction(ctx, tx)
 		return ids, err
 	}
@@ -167,12 +168,13 @@ func (dst *PostgresClient) Insert(ctx context.Context, model string, query strin
 	})
 
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to execute insert query: %v", err)
 		dst.RollbackTransaction(ctx, tx)
 		return ids, err
 	}
 
 	if err = dst.CommitTransaction(ctx, tx); err != nil {
+		dst.Errorf(ctx, "Failed to commit transaction: %v", err)
 		return ids, err
 	}
 
@@ -206,7 +208,7 @@ func (dst *PostgresClient) InsertUUID(ctx context.Context, model string, query s
 	res, err = tx.Query(ctx, query+" RETURNING id")
 	dst.LogInfo(ctx, model, "Create", query, start)
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to execute insert query: %v", err)
 		dst.RollbackTransaction(ctx, tx)
 		return ids, err
 	}
@@ -218,12 +220,13 @@ func (dst *PostgresClient) InsertUUID(ctx context.Context, model string, query s
 	})
 
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to execute insert query: %v", err)
 		dst.RollbackTransaction(ctx, tx)
 		return ids, err
 	}
 
 	if err = dst.CommitTransaction(ctx, tx); err != nil {
+		dst.Errorf(ctx, "Failed to commit transaction: %v", err)
 		return ids, err
 	}
 
@@ -260,13 +263,13 @@ func (dst *PostgresClient) Update(ctx context.Context, model string, query strin
 	res, err = tx.Exec(ctx, query)
 	dst.LogWarning(ctx, model, "Update", query, start)
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to execute update query: %v", err)
 		dst.RollbackTransaction(ctx, tx)
 		return 0, err
 	}
 
 	if !res.Update() {
-		dst.Error(ctx, database.ErrorIncorrectRequest)
+		dst.Errorf(ctx, "Failed to update record: %v", database.ErrorIncorrectRequest)
 		dst.RollbackTransaction(ctx, tx)
 		return 0, database.ErrorIncorrectRequest
 	}
@@ -309,7 +312,7 @@ func (dst *PostgresClient) Delete(ctx context.Context, model string, query strin
 	}
 
 	if !res.Delete() {
-		dst.Error(ctx, database.ErrorIncorrectRequest)
+		dst.Errorf(ctx, "Failed to delete record: %v", database.ErrorIncorrectRequest)
 		dst.RollbackTransaction(ctx, tx)
 		return 0, database.ErrorIncorrectRequest
 	}
@@ -421,7 +424,7 @@ func (dst *PostgresClient) BeginTransaction(ctx context.Context) (pgx.Tx, error)
 	start := time.Now()
 	tx, err := dst.client.Begin(ctx)
 	if !dst.doNotLogQueries {
-		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
+		dst.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mBEGIN\033[0m", float64(time.Since(start))/1000000)
 	}
 	if err != nil {
 		return nil, err
@@ -440,10 +443,10 @@ func (dst *PostgresClient) RollbackTransaction(ctx context.Context, tx pgx.Tx) {
 	start := time.Now()
 	err := tx.Rollback(ctx)
 	if !dst.doNotLogQueries {
-		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
+		dst.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[31mROLLBACK\033[0m", float64(time.Since(start))/1000000)
 	}
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to rollback transaction: %v", err)
 	}
 }
 
@@ -462,10 +465,10 @@ func (dst *PostgresClient) CommitTransaction(ctx context.Context, tx pgx.Tx) err
 
 	err := tx.Commit(ctx)
 	if !dst.doNotLogQueries {
-		dst.Debug(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
+		dst.Debugf(ctx, "\033[1m\033[36mPG TRANSACTION (%.2f ms)\033[0m \033[1m\033[35mCOMMIT\033[0m", float64(time.Since(start))/1000000)
 	}
 	if err != nil {
-		dst.Error(ctx, err)
+		dst.Errorf(ctx, "Failed to commit transaction: %v", err)
 	}
 	return err
 }
@@ -483,7 +486,7 @@ func (dst *PostgresClient) LogDefault(ctx context.Context, model, action, query 
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[34m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debugf(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[34m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 // Put query string to the log with red color
@@ -499,7 +502,7 @@ func (dst *PostgresClient) LogDanger(ctx context.Context, model, action, query s
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[31m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debugf(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[31m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 // Put query string to the log with yellow color
@@ -515,7 +518,7 @@ func (dst *PostgresClient) LogWarning(ctx context.Context, model, action, query 
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[33m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debugf(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[33m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }
 
 // Put query string to the log with green color
@@ -531,5 +534,5 @@ func (dst *PostgresClient) LogInfo(ctx context.Context, model, action, query str
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[32m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
+	dst.Debugf(ctx, "\033[1m\033[36mPG %s %s (%.2f ms)\033[1m \033[32m%s\033[0m", model, action, float64(time.Since(start))/1000000, database.OneLine(query))
 }

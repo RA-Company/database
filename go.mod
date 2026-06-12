@@ -8,8 +8,8 @@ require (
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/ra-company/env v1.0.2
-	github.com/ra-company/logging v1.0.9
+	github.com/ra-company/env v1.0.3
+	github.com/ra-company/logging v1.0.11-0.20260612140314-386db813e113
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/stretchr/testify v1.11.1
 )

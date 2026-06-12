@@ -30,7 +30,6 @@ type ClickHouseClient struct {
 	logging.CustomLogger
 	client          driver.Conn
 	doNotLogQueries bool         // If true, queries will not be logged
-	lastQuery       string       // Last executed query
 	inFlight        atomic.Int64 // Number of in-flight queries
 }
 
@@ -67,7 +66,7 @@ func (dst *ClickHouseClient) Start(ctx context.Context, config *Config) {
 		},
 		Debug: false,
 		Debugf: func(format string, v ...any) {
-			fmt.Printf(format, v)
+			fmt.Printf(format, v...)
 		},
 		Settings: config.Settings,
 		Compression: &clickhouse.Compression{
@@ -93,8 +92,8 @@ func (dst *ClickHouseClient) Start(ctx context.Context, config *Config) {
 		dst.Fatal(ctx, "ClickHouse connection error: %v", err)
 	}
 
-	dst.Info(ctx, "Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
-	dst.Info(ctx, "ClickHouse Server Version: %v", v)
+	dst.Infof(ctx, "Connected to ClickHouse Database: hosts - %v, database - %v, user - %v", config.Hosts, config.DB, config.User)
+	dst.Infof(ctx, "ClickHouse Server Version: %v", v)
 }
 
 // Stop closes the ClickHouse client connection and logs a message indicating disconnection.
@@ -275,25 +274,25 @@ func (dst *ClickHouseClient) LogWarning(ctx context.Context, model, action, quer
 }
 
 func (dst *ClickHouseClient) logQuery(args ...any) {
+	ctx, ok := args[0].(context.Context)
+	if !ok {
+		dst.Debugf(args...)
+		return
+	}
+	var str string
 	if len(args) > 1 {
-		dst.lastQuery = fmt.Sprintf(args[1].(string), args[2:]...)
+		if format, ok := args[1].(string); ok {
+			str = fmt.Sprintf(format, args[2:]...)
+		} else {
+			str = fmt.Sprint(args[1:]...)
+		}
 	} else {
-		dst.lastQuery = fmt.Sprint(args[1:]...)
+		str = fmt.Sprint(args[1:]...)
 	}
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(args[0].(context.Context), dst.lastQuery)
-}
-
-// LastQuery returns the last executed ClickHouse query as a string.
-// This function is useful for debugging purposes, allowing you to see the last query executed by the ClickHouseClient.
-//
-// Returns:
-//   - A string containing the last executed query.
-func (dst *ClickHouseClient) LastQuery() string {
-	// Returns the last executed query as a string.
-	return dst.lastQuery
+	dst.Debugf(ctx, str)
 }
 
 // Client returns the underlying ClickHouse client instance.

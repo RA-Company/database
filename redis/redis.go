@@ -91,15 +91,15 @@ func (dst *RedisClient) startSingle(ctx context.Context, config *Config) {
 	})
 	res := dst.client.Ping(ctx)
 	if res.Err() != nil {
-		dst.Fatal(ctx, "Failed to connect to Redis database: %v", res.Err())
+		dst.Fatalf(ctx, "Failed to connect to Redis database: %v", res.Err())
 	}
 
 	info, err := dst.client.Info(ctx, "server").Result()
 	if err != nil {
-		dst.Fatal(ctx, "Failed to get redis info: %v", err)
+		dst.Fatalf(ctx, "Failed to get redis info: %v", err)
 	}
 
-	dst.Info(ctx, "Connected to Redis database: redis://%v/%v", config.Hosts, dst.db)
+	dst.Infof(ctx, "Connected to Redis database: redis://%v/%v", config.Hosts, dst.db)
 	dst.logServerInfo(ctx, info)
 	dst.cluster = nil // Ensure cluster is nil for single instance.
 }
@@ -114,15 +114,15 @@ func (dst *RedisClient) startCluster(ctx context.Context, config *Config) {
 	})
 	res := dst.cluster.Ping(ctx)
 	if res.Err() != nil {
-		dst.Fatal(ctx, "Failed to connect to Redis cluster: %v", res.Err())
+		dst.Fatalf(ctx, "Failed to connect to Redis cluster: %v", res.Err())
 	}
 
 	info, err := dst.cluster.Info(ctx, "server").Result()
 	if err != nil {
-		dst.Fatal(ctx, "Failed to get redis info: %v", err)
+		dst.Fatalf(ctx, "Failed to get redis info: %v", err)
 	}
 
-	dst.Info(ctx, "Connected to Redis cluster: redis://%v", config.Hosts)
+	dst.Infof(ctx, "Connected to Redis cluster: redis://%v", config.Hosts)
 	dst.logServerInfo(ctx, info)
 	dst.client = nil // Ensure client is nil for cluster.
 }
@@ -141,7 +141,7 @@ func (dst *RedisClient) logServerInfo(ctx context.Context, info string) {
 		}
 	}
 
-	dst.Info(ctx, "Redis version %s (%s), %s", result["redis_version"], result["redis_mode"], result["os"])
+	dst.Infof(ctx, "Redis version %s (%s), %s", result["redis_version"], result["redis_mode"], result["os"])
 }
 
 // Get returns value from Redis database by key. If key is not set, returns default value.
@@ -247,7 +247,7 @@ func (dst *RedisClient) MGet(ctx context.Context, keys []string) ([]string, erro
 func (dst *RedisClient) Set(ctx context.Context, key string, value any, expiration int) error {
 	start := time.Now()
 	err := dst.Client().Set(ctx, key, value, time.Duration(expiration)*time.Second).Err()
-	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, database.OneLine(fmt.Sprintf("%s", value)))
+	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SET (%.2f ms)\033[1m \033[33m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, database.OneLine(fmt.Sprintf("%v", value)))
 	return err
 }
 
@@ -272,7 +272,7 @@ func (dst *RedisClient) MultiSet(ctx context.Context, sets []Set) error {
 		} else {
 			pipe.Set(ctx, set.Key, set.Value, 0)
 		}
-		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, database.OneLine(fmt.Sprintf("%s", set.Value))))
+		vals = append(vals, fmt.Sprintf("%q=%q", set.Key, database.OneLine(fmt.Sprintf("%v", set.Value))))
 	}
 	_, err := pipe.Exec(ctx)
 	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) MULTISET (%.2f ms)\033[1m \033[33m%s\033[0m", dst.db, float64(time.Since(start))/1000000, strings.Join(vals, ", "))
@@ -571,7 +571,7 @@ func (dst *RedisClient) XGroupCreateMkStream(ctx context.Context, stream, group,
 	startTime := time.Now()
 	err := dst.Client().XGroupCreateMkStream(ctx, stream, group, start).Err()
 	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XGROUP CREATE MKSTREAM (%.2f ms)\033[1m \033[33m %q %q %q\033[0m", dst.db, float64(time.Since(startTime))/1000000, stream, group, start)
-	if err != nil && err.Error() == "BUSYGROUP Consumer Group name already exists" {
+	if err != nil && strings.Contains(err.Error(), "BUSYGROUP") {
 		return ErrorGroupAlreadyExists
 	}
 
@@ -638,7 +638,7 @@ func (dst *RedisClient) XReadGroup(ctx context.Context, args *redis.XReadGroupAr
 	start := time.Now()
 	messages, err := dst.Client().XReadGroup(ctx, args).Result()
 	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) XREADGROUP (%.2f ms)\033[1m \033[34m%q \"%s\" %d\033[0m", dst.db, float64(time.Since(start))/1000000, args.Group, strings.Join(args.Streams, `" "`), args.Count)
-	if err != nil && err.Error() == "redis: nil" {
+	if err != nil && errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
 	return messages, err
@@ -671,16 +671,25 @@ func (dst *RedisClient) XAck(ctx context.Context, stream, group string, ids ...s
 }
 
 func (dst *RedisClient) logQuery(args ...any) {
+	ctx, ok := args[0].(context.Context)
+	if !ok {
+		dst.Debugf(args...)
+		return
+	}
 	var str string
 	if len(args) > 1 {
-		str = fmt.Sprintf(args[1].(string), args[2:]...)
+		if format, ok := args[1].(string); ok {
+			str = fmt.Sprintf(format, args[2:]...)
+		} else {
+			str = fmt.Sprint(args[1:]...)
+		}
 	} else {
 		str = fmt.Sprint(args[1:]...)
 	}
 	if dst.doNotLogQueries {
 		return
 	}
-	dst.Debug(args[0].(context.Context), str)
+	dst.Debugf(ctx, str)
 }
 
 // Client returns the interface for the Redis client.

@@ -25,7 +25,7 @@ func (dst *FieldValue) updateColumn() string {
 	if dst.UpdateColumn == "" {
 		return "updated_at"
 	}
-	return strings.Clone(dst.UpdateColumn)
+	return dst.UpdateColumn
 }
 
 // String compares two string values and adds the new value to the Fields and Values slices if they differ.
