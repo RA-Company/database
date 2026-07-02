@@ -249,7 +249,7 @@ func (dst *PostgresClient) InsertUUID(ctx context.Context, model string, query s
 //   - An error if the operation fails, or nil if it succeeds.
 func (dst *PostgresClient) Update(ctx context.Context, model string, query string) (uint, error) {
 	if query == "" {
-		return 0, database.ErrorIncorrectRequest
+		return 0, database.ErrorEmptyUpdateRequest
 	}
 
 	tx, err := dst.BeginTransaction(ctx)

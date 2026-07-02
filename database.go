@@ -12,6 +12,7 @@ import (
 
 var (
 	ErrorIncorrectParameters = errors.New("incorrect parameters")
+	ErrorEmptyUpdateRequest  = errors.New("empty update request")
 	ErrorIncorrectRequest    = errors.New("incorrect request")
 	ErrorDatabaseError       = errors.New("database error")
 	ErrorNotFound            = errors.New("not found")
