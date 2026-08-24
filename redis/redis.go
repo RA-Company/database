@@ -320,11 +320,11 @@ func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64
 //   - ctx: The context for the operation.
 //   - key: The key in Redis database.
 //   - value: The value to add to the list.
-//   - ttl: The time-to-live (expiration) for the list in seconds.
+//   - ttl: The time-to-live (expiration) for the list in seconds as an unsigned integer.
 //
 // Returns:
 //   - An error if the list is not empty or if the operation fails, otherwise nil.
-func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any, ttl int64) error {
+func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any, ttl uint64) error {
 	start := time.Now()
 	var (
 		res any
