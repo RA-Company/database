@@ -36,6 +36,7 @@ type RedisClient struct {
 	client               *redis.Client        // client: is the Redis client used to interact with the Redis server.
 	cluster              *redis.ClusterClient // cluster: is a Redis cluster client used for connecting to a Redis cluster.
 	singlePush           *redis.Script        // singlePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty.
+	expireSinglePush     *redis.Script        // expireSinglePush: is a Lua script used for atomic operations on Redis lists, specifically for pushing a value to a list only if the list is empty and setting an expiration time for the list.
 	db                   int                  // db: is the Redis database number, used for logging purposes.
 	doNotLogQueries      bool                 // doNotLogQueries: is a flag that indicates whether to log Redis queries or not. If true, queries will not be logged, which can be useful for performance or security reasons.
 }
@@ -78,6 +79,14 @@ func (dst *RedisClient) Start(ctx context.Context, config *Config) {
             return -1
         end
     `)
+	dst.expireSinglePush = redis.NewScript(`
+		if redis.call("LLEN", KEYS[1]) == 0 then
+			redis.call("LPUSH", KEYS[1], ARGV[1])
+			return redis.call("EXPIRE", KEYS[1], ARGV[2])
+		else
+			return -1
+		end
+	`)
 }
 
 func (dst *RedisClient) startSingle(ctx context.Context, config *Config) {
@@ -311,13 +320,23 @@ func (dst *RedisClient) LPush(ctx context.Context, key string, value any) (int64
 //   - ctx: The context for the operation.
 //   - key: The key in Redis database.
 //   - value: The value to add to the list.
+//   - ttl: The time-to-live (expiration) for the list in seconds.
 //
 // Returns:
 //   - An error if the list is not empty or if the operation fails, otherwise nil.
-func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any) error {
+func (dst *RedisClient) SinglePush(ctx context.Context, key string, value any, ttl int64) error {
 	start := time.Now()
-	res, err := dst.singlePush.Run(ctx, dst.Client(), []string{key}, value).Result()
-	dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
+	var (
+		res any
+		err error
+	)
+	if ttl == 0 {
+		res, err = dst.singlePush.Run(ctx, dst.Client(), []string{key}, value).Result()
+		dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q\033[0m", dst.db, float64(time.Since(start))/1000000, key, value)
+	} else {
+		res, err = dst.expireSinglePush.Run(ctx, dst.Client(), []string{key}, value, ttl).Result()
+		dst.logQuery(ctx, "\033[1m\033[36mRedis(%d) EXPIRE SINGLEPUSH (%.2f ms)\033[1m \033[34m%q=%q %d\033[0m", dst.db, float64(time.Since(start))/1000000, key, value, ttl)
+	}
 	if err != nil {
 		return err
 	}

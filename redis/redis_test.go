@@ -171,7 +171,7 @@ func tests(t *testing.T, r *RedisClient, config *Config) {
 			r.client.Del(ctx, key).Result()
 		}
 
-		err := r.SinglePush(ctx, key, value)
+		err := r.SinglePush(ctx, key, value, 10)
 		require.NoError(t, err, "SinglePush()")
 
 		if r.client == nil {
@@ -180,7 +180,7 @@ func tests(t *testing.T, r *RedisClient, config *Config) {
 			defer r.client.Del(ctx, key)
 		}
 
-		err = r.SinglePush(ctx, key, value)
+		err = r.SinglePush(ctx, key, value, 10)
 		require.ErrorIs(t, err, ErrorListIsNotEmpty, "SinglePush()")
 	})
 
